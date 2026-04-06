@@ -70,7 +70,14 @@ def check_and_install_dependencies():
             stdout=None, # 将 npm install 的日志也直接输出到终端，让你能看到为什么 npm 失败
             stderr=subprocess.STDOUT
         )
-        print("  -> 正在执行 npm run build 构建静态资源...")
+        
+        print("  -> 正在强制清空旧版静态缓存并执行 npm run build 构建新资源...")
+        # 跨平台强制清空 dist 目录，防止 Vite 复用旧的 index.html
+        import shutil
+        dist_dir = FRONTEND_DIR / "dist"
+        if dist_dir.exists():
+            shutil.rmtree(dist_dir)
+            
         subprocess.check_call(
             npm_build_cmd,
             cwd=FRONTEND_DIR,
