@@ -178,8 +178,21 @@ def parse_tool_calls(answer: str, tools: list):
         blocks.append({"type": "tool_use", "id": tool_id, "name": tool_call["name"], "input": tool_call.get("input", {})})
         return blocks, "tool_use"
 
+    # 5. 极端保底拦截：只要看到文本中含有明显意图，但正则全部失败，强制触发纠偏
+    # 例如 Qwen 输出: "我将使用 Tool Read 来读取..." 或者 "Tool Glob does not exist"
+    if answer.strip() and tools:
+        for tn in tool_names:
+            if tn.lower() in answer.lower() or "tool" in answer.lower():
+                log.warning(f"[ToolParse] 未匹配到正确格式，但检测到工具调用意图。强制阻断纯文本返回。")
+                # 构造一个错误输入，强迫 Claude Code 回抛错误让模型重试
+                fallback_name = next(iter(tool_names)) if tool_names else "unknown"
+                return _make_tool_block(fallback_name, {"_error": "You MUST use ✿ACTION✿ syntax to call tools. Direct text or JSON is invalid. PLEASE RETRY."})
+
     log.warning(f"[ToolParse] ✗ 未检测到工具调用，作为普通文本返回。工具列表: {tool_names}")
-    return [{"type": "text", "text": answer}], "end_turn"
+    
+    # 终极防空指针：如果连 answer 都是空的，Claude Code 收到空 text 会崩溃
+    text_content = answer if answer.strip() else "[模型正在思考或暂无输出，请继续]"
+    return [{"type": "text", "text": text_content}], "end_turn"
 
 def inject_format_reminder(prompt: str, tool_name: str) -> str:
     reminder = (
