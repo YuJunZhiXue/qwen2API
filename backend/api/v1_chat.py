@@ -55,6 +55,11 @@ async def chat_completions(request: Request):
     content = build_prompt_with_tools(messages, tools)
     
     log.info(f"[OAI] model={model}, stream=True, tools={[t.get('function', {}).get('name') for t in tools]}, prompt_len={len(content)}")
+    
+    # 诊断日志1：截取最后一条用户消息和生成的 prompt 尾部，确认 User 内容已带上
+    last_user_msg = next((m.get("content", "") for m in reversed(messages) if m.get("role") == "user"), "None")
+    log.info(f"[Debug-Input] 最新用户输入: {str(last_user_msg)[:200]}...")
+    log.info(f"[Debug-Prompt] 构建出的 Prompt 尾部: {content[-500:]!r}")
 
     # 无感重试调用
     async def generate():
@@ -110,6 +115,10 @@ async def chat_completions(request: Request):
                                 native_tc_chunks[tc_id]["args"] += cont
 
                 answer_text = "".join(answer_chunks)
+
+                # 诊断日志2：打印模型完整的原始返回内容（包含 thinking 阶段）
+                log.info(f"[Debug-Output] 模型原始 thinking: {''.join(thinking_chunks)[:500]!r}...")
+                log.info(f"[Debug-Output] 模型原始 answer: {answer_text[:500]!r}...")
 
                 if not answer_text.strip() and thinking_chunks and tools:
                     thinking_text = "".join(thinking_chunks)
