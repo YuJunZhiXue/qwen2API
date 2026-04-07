@@ -1166,21 +1166,41 @@ def _parse_tool_calls(answer: str, tools: list):
         blocks.append({"type": "tool_use", "id": tool_id, "name": name, "input": input_data})
         return blocks, "tool_use"
 
-    # 1. Primary: ##TOOL_CALL##...##END_CALL## (safe, no XML — Qwen server won't intercept)
-    tc_m = re.search(r'##TOOL_CALL##\s*(.*?)\s*##END_CALL##', answer, re.DOTALL | re.IGNORECASE)
+    # 1. Primary: ✿ACTION✿...✿END_ACTION✿ (safe)
+    tc_m = re.search(r'✿ACTION✿\s*(.*?)\s*✿END_ACTION✿', answer, re.DOTALL | re.IGNORECASE)
     if tc_m:
         try:
             obj = json.loads(tc_m.group(1))
+            name = obj.get("action", obj.get("name", ""))
+            inp = obj.get("args", obj.get("input", obj.get("arguments", obj.get("parameters", {}))))
+            if isinstance(inp, str):
+                try: inp = json.loads(inp)
+                except: inp = {"value": inp}
+            prefix = answer[:tc_m.start()].strip()
+            log.info(f"[ToolParse] ✓ ✿ACTION✿ 格式: name={name!r}, input={str(inp)[:120]}")
+            return _make_tool_block(name, inp, prefix)
+        except (json.JSONDecodeError, ValueError) as e:
+            log.warning(f"[ToolParse] ✿ACTION✿ 格式解析失败: {e}, content={tc_m.group(1)[:100]!r}")
+            # 强制纠错
+            name_m = re.search(r'"(?:action|name)"\s*:\s*"([^"]+)"', tc_m.group(1))
+            name = name_m.group(1) if name_m else next(iter(tool_names)) if tool_names else "unknown"
+            return _make_tool_block(name, {"_error": f"Invalid JSON in ACTION block. Fix quotes/newlines. Error: {e}"})
+
+    # 1.5 Legacy: ##TOOL_CALL##...##END_CALL##
+    tc_old = re.search(r'##TOOL_CALL##\s*(.*?)\s*##END_CALL##', answer, re.DOTALL | re.IGNORECASE)
+    if tc_old:
+        try:
+            obj = json.loads(tc_old.group(1))
             name = obj.get("name", "")
             inp = obj.get("input", obj.get("args", obj.get("arguments", obj.get("parameters", {}))))
             if isinstance(inp, str):
                 try: inp = json.loads(inp)
                 except: inp = {"value": inp}
-            prefix = answer[:tc_m.start()].strip()
+            prefix = answer[:tc_old.start()].strip()
             log.info(f"[ToolParse] ✓ ##TOOL_CALL## 格式: name={name!r}, input={str(inp)[:120]}")
             return _make_tool_block(name, inp, prefix)
         except (json.JSONDecodeError, ValueError) as e:
-            log.warning(f"[ToolParse] ##TOOL_CALL## 格式解析失败: {e}, content={tc_m.group(1)[:100]!r}")
+            log.warning(f"[ToolParse] ##TOOL_CALL## 格式解析失败: {e}, content={tc_old.group(1)[:100]!r}")
 
     # 2. XML: <tool_call>...</tool_call>
     xml_m = re.search(r'<tool_call>\s*(.*?)\s*</tool_call>', answer, re.DOTALL | re.IGNORECASE)
@@ -1244,12 +1264,24 @@ def _parse_tool_calls(answer: str, tools: list):
         blocks = []
         if prefix:
             blocks.append({"type": "text", "text": prefix})
-        blocks.append({"type": "tool_use", "id": tool_id,
-                        "name": tool_call["name"], "input": tool_call.get("input", {})})
+        blocks.append({"type": "tool_use", "id": tool_id, "name": tool_call["name"], "input": tool_call.get("input", {})})
         return blocks, "tool_use"
 
+    # 5. 极端保底拦截：只要看到文本中含有明显意图，但正则全部失败，强制触发纠偏
+    # 例如 Qwen 输出: "我将使用 Tool Read 来读取..." 或者 "Tool Glob does not exist"
+    if answer.strip() and tools:
+        for tn in tool_names:
+            if tn.lower() in answer.lower() or "tool" in answer.lower():
+                log.warning(f"[ToolParse] 未匹配到正确格式，但检测到工具调用意图。强制阻断纯文本返回。")
+                # 构造一个错误输入，强迫 Claude Code 回抛错误让模型重试
+                fallback_name = next(iter(tool_names)) if tool_names else "unknown"
+                return _make_tool_block(fallback_name, {"_error": "You MUST use ✿ACTION✿ syntax to call tools. Direct text or JSON is invalid. PLEASE RETRY."})
+
     log.warning(f"[ToolParse] ✗ 未检测到工具调用，作为普通文本返回。工具列表: {tool_names}")
-    return [{"type": "text", "text": answer}], "end_turn"
+    
+    # 终极防空指针：如果连 answer 都是空的，Claude Code 收到空 text 会崩溃
+    text_content = answer if answer.strip() else "[模型正在思考或暂无输出，请继续]"
+    return [{"type": "text", "text": text_content}], "end_turn"
 
 
 def messages_to_prompt(req_data: dict) -> tuple:
@@ -1707,6 +1739,7 @@ async def anthropic_messages_endpoint(request: Request):
                 # Buffer all events first
                 thinking_chunks = []
                 answer_chunks = []
+                native_tc_chunks = {}
                 for evt in events:
                     if evt["type"] != "delta":
                         continue
@@ -1716,10 +1749,39 @@ async def anthropic_messages_endpoint(request: Request):
                         thinking_chunks.append(content)
                     elif phase == "answer" and content:
                         answer_chunks.append(content)
+                    elif phase == "tool_call" and content:
+                        tc_id = evt.get("extra", {}).get("tool_call_id", "tc_0")
+                        if tc_id not in native_tc_chunks:
+                            native_tc_chunks[tc_id] = {"name": "", "args": ""}
+                        try:
+                            chunk = json.loads(content)
+                            if "name" in chunk:
+                                native_tc_chunks[tc_id]["name"] = chunk["name"]
+                            if "arguments" in chunk:
+                                native_tc_chunks[tc_id]["args"] += chunk["arguments"]
+                        except (json.JSONDecodeError, ValueError):
+                            native_tc_chunks[tc_id]["args"] += content
                     if evt.get("status") == "finished" and phase == "answer":
                         break
 
                 answer_text = "".join(answer_chunks)
+
+                if native_tc_chunks:
+                    log.info(f"[Native-TC] 收到原生工具调用事件: {list(native_tc_chunks.keys())}")
+                    tc_parts = []
+                    for tc_id, tc in native_tc_chunks.items():
+                        name = tc["name"]
+                        try:
+                            inp = json.loads(tc["args"]) if tc["args"] else {}
+                        except (json.JSONDecodeError, ValueError):
+                            inp = {"raw": tc["args"]}
+                        tc_parts.append(f'✿ACTION✿\n{{"action": {json.dumps(name)}, "args": {json.dumps(inp, ensure_ascii=False)}}}\n✿END_ACTION✿')
+                    
+                    if not answer_text:
+                        answer_text = "\n\n".join(tc_parts)
+                    else:
+                        answer_text += "\n\n" + "\n\n".join(tc_parts)
+
                 reasoning_text = "".join(thinking_chunks)
 
                 # Detect Qwen native tool call interception before emitting any blocks
