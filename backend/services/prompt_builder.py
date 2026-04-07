@@ -198,12 +198,19 @@ def build_prompt_with_tools(messages: list, tools: list) -> str:
         used += len(line) + 2
         msg_count += 1
 
-    if history_parts and not history_parts[0].startswith("Human:"):
+    if tools and msg_count > 0:
         first_user = next((m for m in messages if m.get("role") == "user"), None)
         if first_user:
-            t = _extract_text(first_user.get("content", ""))
-            history_parts.insert(0, f"Human: {t[:1000]}...[Original Task]")
+            t = _extract_text(first_user.get("content", ""), user_tool_mode=True)
+            first_short = t[:800] + ("...[Original Task]" if len(t) > 800 else "")
+            first_line = f"Human: {first_short}"
+            if not history_parts or not history_parts[0].startswith(f"Human: {t[:60]}"):
+                history_parts.insert(0, first_line)
 
-    final_prompt = f"{sys_part}\n\n{tools_part}\n\n" + "\n\n".join(history_parts) + "\n\nAssistant: "
-    return final_prompt.strip()
+    parts = []
+    if sys_part: parts.append(sys_part)
+    parts.extend(history_parts)
+    if tools_part: parts.append(tools_part)
+    parts.append("Assistant:")
+    return "\n\n".join(parts)
 
