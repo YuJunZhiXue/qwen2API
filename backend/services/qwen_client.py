@@ -21,19 +21,31 @@ class QwenClient:
         ts = int(time.time())
         body = {"title": f"api_{ts}", "models": [model], "chat_mode": "normal",
                 "chat_type": "t2t", "timestamp": ts}
-        
+
         r = await self.engine.api_call("POST", "/api/v2/chats/new", token, body)
         if r["status"] == 429:
             raise Exception("429 Too Many Requests (Engine Queue Full)")
-            
+
         body_text = r.get("body", "")
         if r["status"] != 200:
+            body_lower = body_text.lower()
+            if (r["status"] in (401, 403)
+                    or "unauthorized" in body_lower or "forbidden" in body_lower
+                    or "token" in body_lower or "login" in body_lower
+                    or "401" in body_text or "403" in body_text):
+                raise Exception(f"unauthorized: create_chat HTTP {r['status']}: {body_text[:100]}")
             raise Exception(f"create_chat HTTP {r['status']}: {body_text[:100]}")
-            
+
         try:
             data = json.loads(body_text)
+            if not data.get("success") or "id" not in data.get("data", {}):
+                raise Exception("Qwen API returned error or missing id")
             return data["data"]["id"]
         except Exception as e:
+            body_lower = body_text.lower()
+            if any(kw in body_lower for kw in ("html", "login", "unauthorized", "activation",
+                                                "pending", "forbidden", "token", "expired", "invalid")):
+                raise Exception(f"unauthorized: account issue: {body_text[:200]}")
             raise Exception(f"create_chat parse error: {e}, body={body_text[:200]}")
 
     async def delete_chat(self, token: str, chat_id: str):
