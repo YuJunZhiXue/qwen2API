@@ -19,6 +19,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.core.config import settings
 from backend.core.database import AsyncJsonDB
 from backend.core.browser_engine import BrowserEngine
+from backend.core.httpx_engine import HttpxEngine
 from backend.core.account_pool import AccountPool
 from backend.services.qwen_client import QwenClient
 from backend.api import admin, v1_chat, probes, anthropic, gemini, embeddings, images
@@ -35,12 +36,19 @@ async def lifespan(app: FastAPI):
     app.state.users_db = AsyncJsonDB(settings.USERS_FILE, default_data=[])
     app.state.captures_db = AsyncJsonDB(settings.CAPTURES_FILE, default_data=[])
 
-    app.state.browser_engine = BrowserEngine(pool_size=settings.BROWSER_POOL_SIZE)
+    if settings.ENGINE_MODE == "httpx":
+        engine = HttpxEngine(base_url="https://chat.qwen.ai")
+        log.info("引擎模式: httpx 直连")
+    else:
+        engine = BrowserEngine(pool_size=settings.BROWSER_POOL_SIZE)
+        log.info("引擎模式: Camoufox 浏览器")
+
+    app.state.browser_engine = engine
     app.state.account_pool = AccountPool(app.state.accounts_db, max_inflight=settings.MAX_INFLIGHT_PER_ACCOUNT)
-    app.state.qwen_client = QwenClient(app.state.browser_engine, app.state.account_pool)
+    app.state.qwen_client = QwenClient(engine, app.state.account_pool)
 
     await app.state.account_pool.load()
-    await app.state.browser_engine.start()
+    await engine.start()
 
     asyncio.create_task(garbage_collect_chats(app.state.qwen_client))
 
