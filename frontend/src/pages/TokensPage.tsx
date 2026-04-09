@@ -9,7 +9,7 @@ export default function TokensPage() {
   const [copied, setCopied] = useState<string | null>(null)
 
   const fetchKeys = () => {
-    fetch("http://localhost:8080/api/admin/keys", { headers: getAuthHeader() })
+    fetch("/api/admin/keys", { headers: getAuthHeader() })
       .then(res => {
         if (!res.ok) throw new Error("Unauthorized")
         return res.json()
@@ -23,7 +23,7 @@ export default function TokensPage() {
   }, [])
 
   const handleGenerate = () => {
-    fetch("http://localhost:8080/api/admin/keys", {
+    fetch("/api/admin/keys", {
       method: "POST",
       headers: getAuthHeader()
     }).then(res => {
@@ -37,7 +37,7 @@ export default function TokensPage() {
   }
 
   const handleDelete = (key: string) => {
-    fetch(`http://localhost:8080/api/admin/keys/${encodeURIComponent(key)}`, {
+    fetch(`/api/admin/keys/${encodeURIComponent(key)}`, {
       method: "DELETE",
       headers: getAuthHeader()
     }).then(res => {

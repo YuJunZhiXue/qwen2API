@@ -14,7 +14,7 @@ export default function AccountsPage() {
   const [verifyingAll, setVerifyingAll] = useState(false)
 
   const fetchAccounts = () => {
-    fetch("http://localhost:8080/api/admin/accounts", { headers: getAuthHeader() })
+    fetch("/api/admin/accounts", { headers: getAuthHeader() })
       .then(res => {
         if(!res.ok) throw new Error()
         return res.json()
@@ -33,7 +33,7 @@ export default function AccountsPage() {
       return
     }
     const id = toast.loading("正在手动注入账号...")
-    fetch("http://localhost:8080/api/admin/accounts", {
+    fetch("/api/admin/accounts", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...getAuthHeader() },
       body: JSON.stringify({ email: email || `manual_${Date.now()}@qwen`, password, token, valid: true })
@@ -53,7 +53,7 @@ export default function AccountsPage() {
 
   const handleDelete = (emailToDelete: string) => {
     const id = toast.loading("正在删除...")
-    fetch(`http://localhost:8080/api/admin/accounts/${encodeURIComponent(emailToDelete)}`, {
+    fetch(`/api/admin/accounts/${encodeURIComponent(emailToDelete)}`, {
       method: "DELETE",
       headers: getAuthHeader()
     }).then(() => {
@@ -65,7 +65,7 @@ export default function AccountsPage() {
   const handleAutoRegister = () => {
     setRegistering(true)
     const id = toast.loading("浏览器无头注册引擎已拉起，正在获取新号 (约需1~2分钟)...")
-    fetch("http://localhost:8080/api/admin/accounts/register", {
+    fetch("/api/admin/accounts/register", {
       method: "POST",
       headers: getAuthHeader()
     }).then(res => res.json())
@@ -84,7 +84,7 @@ export default function AccountsPage() {
   const handleVerify = (emailToVerify: string) => {
     setVerifying(emailToVerify)
     const id = toast.loading(`正在强制验活: ${emailToVerify}...`)
-    fetch(`http://localhost:8080/api/admin/accounts/${encodeURIComponent(emailToVerify)}/verify`, {
+    fetch(`/api/admin/accounts/${encodeURIComponent(emailToVerify)}/verify`, {
       method: "POST",
       headers: getAuthHeader()
     }).then(res => res.json())
@@ -100,7 +100,7 @@ export default function AccountsPage() {
   const handleVerifyAll = () => {
     setVerifyingAll(true)
     const id = toast.loading(`正在批量验活所有账号...`)
-    fetch(`http://localhost:8080/api/admin/verify`, {
+    fetch(`/api/admin/verify`, {
       method: "POST",
       headers: getAuthHeader()
     }).then(res => res.json())
@@ -115,7 +115,7 @@ export default function AccountsPage() {
 
   const handleActivate = (emailToActivate: string) => {
     const id = toast.loading(`正在激活: ${emailToActivate}... (可能需要2分钟)`)
-    fetch(`http://localhost:8080/api/admin/accounts/${encodeURIComponent(emailToActivate)}/activate`, {
+    fetch(`/api/admin/accounts/${encodeURIComponent(emailToActivate)}/activate`, {
       method: "POST",
       headers: getAuthHeader()
     }).then(res => res.json())

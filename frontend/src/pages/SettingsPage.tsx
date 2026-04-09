@@ -15,7 +15,7 @@ export default function SettingsPage() {
   }
 
   const fetchSettings = () => {
-    fetch("http://localhost:8080/api/admin/settings", { headers: getAuthHeader() })
+    fetch("/api/admin/settings", { headers: getAuthHeader() })
       .then(res => {
         if(!res.ok) throw new Error("Unauthorized")
         return res.json()
@@ -50,7 +50,7 @@ export default function SettingsPage() {
   }
 
   const handleSaveConcurrency = () => {
-    fetch("http://localhost:8080/api/admin/settings", {
+    fetch("/api/admin/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...getAuthHeader() },
       body: JSON.stringify({ max_inflight_per_account: Number(maxInflight) })
@@ -63,7 +63,7 @@ export default function SettingsPage() {
   const handleSaveAliases = () => {
     try {
       const parsed = JSON.parse(modelAliases)
-      fetch("http://localhost:8080/api/admin/settings", {
+      fetch("/api/admin/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...getAuthHeader() },
         body: JSON.stringify({ model_aliases: parsed })
@@ -77,7 +77,7 @@ export default function SettingsPage() {
   }
 
   const curlExample = `# 流式对话
-curl http://localhost:8080/v1/chat/completions \\
+curl /v1/chat/completions \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -d '{
@@ -87,7 +87,7 @@ curl http://localhost:8080/v1/chat/completions \\
   }'
 
 # Anthropic 格式
-curl http://localhost:8080/anthropic/v1/messages \\
+curl /anthropic/v1/messages \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -d '{
@@ -96,7 +96,7 @@ curl http://localhost:8080/anthropic/v1/messages \\
   }'
 
 # Gemini 格式
-curl http://localhost:8080/v1beta/models/qwen3.6-plus:generateContent \\
+curl /v1beta/models/qwen3.6-plus:generateContent \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -d '{
@@ -131,7 +131,7 @@ curl http://localhost:8080/v1beta/models/qwen3.6-plus:generateContent \\
                 type="password" 
                 value={sessionKey}
                 onChange={e => setSessionKey(e.target.value)}
-                placeholder="sk-qwen-... 或默认管理员密钥 admin" 
+                placeholder="sk-qwen-... 或管理员密钥" 
                 className="flex h-10 w-full flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
               />
               <Button onClick={handleSaveSessionKey}>保存</Button>
@@ -151,7 +151,7 @@ curl http://localhost:8080/v1beta/models/qwen3.6-plus:generateContent \\
           <div className="p-6">
             <div className="space-y-1">
               <label className="text-sm font-medium">API 基础地址 (Base URL)</label>
-              <input type="text" readOnly value="http://localhost:8080" className="flex h-10 w-full rounded-md border border-input bg-muted px-3 py-2 text-sm font-mono text-muted-foreground" />
+              <input type="text" readOnly value={window.location.origin} className="flex h-10 w-full rounded-md border border-input bg-muted px-3 py-2 text-sm font-mono text-muted-foreground" />
             </div>
           </div>
         </div>

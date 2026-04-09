@@ -20,7 +20,7 @@ export default function TestPage() {
 
     try {
       if (!stream) {
-        const res = await fetch("http://localhost:8080/v1/chat/completions", {
+        const res = await fetch("/v1/chat/completions", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...getAuthHeader() },
           body: JSON.stringify({
@@ -39,7 +39,7 @@ export default function TestPage() {
         }
       } else {
         // Stream handling
-        const res = await fetch("http://localhost:8080/v1/chat/completions", {
+        const res = await fetch("/v1/chat/completions", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...getAuthHeader() },
           body: JSON.stringify({

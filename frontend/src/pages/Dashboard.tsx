@@ -7,7 +7,7 @@ export default function Dashboard() {
   const [status, setStatus] = useState<any>(null)
 
   useEffect(() => {
-    fetch("http://localhost:8080/api/admin/status", { headers: getAuthHeader() })
+    fetch("/api/admin/status", { headers: getAuthHeader() })
       .then(res => {
         if (!res.ok) throw new Error("Unauthorized")
         return res.json()
