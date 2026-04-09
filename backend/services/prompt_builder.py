@@ -148,7 +148,7 @@ def build_prompt_with_tools(system_prompt: str, messages: list, tools: list) -> 
     NEEDSREVIEW_MARKERS = ("需求回显", "已了解规则", "等待用户输入", "待执行任务", "待确认事项",
                            "[需求回显]", "**需求回显**")
     msg_count = 0
-    max_history_msgs = 12 if tools else 200
+    max_history_msgs = 8 if tools else 200
     for msg in reversed(messages):
         if msg_count >= max_history_msgs:
             break
@@ -171,8 +171,8 @@ def build_prompt_with_tools(system_prompt: str, messages: list, tools: list) -> 
                 )
             elif not isinstance(tool_content, str):
                 tool_content = str(tool_content)
-            if len(tool_content) > 450:
-                tool_content = tool_content[:450] + "...[truncated]"
+            if len(tool_content) > 300:
+                tool_content = tool_content[:300] + "...[truncated]"
             line = f"[Tool Result]{(' id=' + tool_call_id) if tool_call_id else ''}\n{tool_content}\n[/Tool Result]"
             if used + len(line) + 2 > budget and history_parts:
                 break

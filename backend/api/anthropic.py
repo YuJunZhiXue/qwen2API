@@ -231,11 +231,21 @@ async def anthropic_messages(request: Request):
                 blocked_names = _extract_blocked_tool_names(answer_text.strip())
                 if blocked_names and tools:
                     blocked_name = blocked_names[0]
-                    if stream_attempt < max_attempts - 1:
+                    # 如果 native_tc_chunks 有数据，直接转换格式，跳过重试（省 60s）
+                    if native_tc_chunks:
+                        tc = list(native_tc_chunks.values())[0]
+                        tc_name = tc.get("name", blocked_name)
+                        try:
+                            tc_inp = json.loads(tc["args"]) if tc.get("args") else {}
+                        except Exception:
+                            tc_inp = {}
+                        answer_text = f'##TOOL_CALL##\n{{"name": {json.dumps(tc_name)}, "input": {json.dumps(tc_inp, ensure_ascii=True)}}}\n##END_CALL##'
+                        log.info(f"[NativeBlock-ANT] 直接转换原生调用 '{tc_name}' → ##TOOL_CALL## 格式，跳过重试")
+                        blocked_names = []
+                    elif stream_attempt < max_attempts - 1:
                         if acc:
                             client.account_pool.release(acc)
                             if chat_id:
-
                                 asyncio.create_task(client.delete_chat(acc.token, chat_id))
                         if acc: excluded_accounts.add(acc.email)
                         log.warning(f"[NativeBlock-ANT] Qwen拦截了工具 '{blocked_name}' 的原生调用，注入格式纠正后重试 (attempt {stream_attempt+1}/{max_attempts})")
@@ -437,11 +447,21 @@ async def anthropic_messages(request: Request):
                 blocked_names = _extract_blocked_tool_names(answer_text.strip())
                 if blocked_names and tools:
                     blocked_name = blocked_names[0]
-                    if stream_attempt < max_attempts - 1:
+                    # 如果 native_tc_chunks 有数据，直接转换格式，跳过重试（省 60s）
+                    if native_tc_chunks:
+                        tc = list(native_tc_chunks.values())[0]
+                        tc_name = tc.get("name", blocked_name)
+                        try:
+                            tc_inp = json.loads(tc["args"]) if tc.get("args") else {}
+                        except Exception:
+                            tc_inp = {}
+                        answer_text = f'##TOOL_CALL##\n{{"name": {json.dumps(tc_name)}, "input": {json.dumps(tc_inp, ensure_ascii=True)}}}\n##END_CALL##'
+                        log.info(f"[NativeBlock-ANT] 直接转换原生调用 '{tc_name}' → ##TOOL_CALL## 格式，跳过重试")
+                        blocked_names = []
+                    elif stream_attempt < max_attempts - 1:
                         if acc:
                             client.account_pool.release(acc)
                             if chat_id:
-
                                 asyncio.create_task(client.delete_chat(acc.token, chat_id))
                         if acc: excluded_accounts.add(acc.email)
                         log.warning(f"[NativeBlock-ANT] Qwen拦截了工具 '{blocked_name}' 的原生调用，注入格式纠正后重试 (attempt {stream_attempt+1}/{max_attempts})")
