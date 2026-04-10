@@ -7,7 +7,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Backend + Final Image
-FROM python:3.11-slim
+FROM python:3.12-slim
 WORKDIR /workspace
 
 # Always refresh apt cache first (never cache this layer)

@@ -323,9 +323,10 @@ class QwenClient:
                         log.warning(f"[本地背压 {attempt+1}/{settings.MAX_RETRIES}] 引擎队列已满：account={acc.email} chat_id={chat_id}")
                         raise Exception("local_backpressure: engine queue full")
                     if chunk_result.get("status") != 200 and chunk_result.get("status") != "streamed":
+                        body_preview = (chunk_result.get("body", "")[:120]).replace("\n", "\\n")
                         log.warning(
                             f"[重试 {attempt+1}/{settings.MAX_RETRIES}] 上游分片异常：account={acc.email} chat_id={chat_id} "
-                            f"status={chunk_result.get('status')} body_preview={(chunk_result.get('body', '')[:120]).replace(chr(10), '\\n')!r}"
+                            f"status={chunk_result.get('status')} body_preview={body_preview!r}"
                         )
                         raise Exception(f"HTTP {chunk_result['status']}: {chunk_result.get('body', '')[:100]}")
 
