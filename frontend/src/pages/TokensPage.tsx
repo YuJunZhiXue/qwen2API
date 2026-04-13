@@ -3,13 +3,14 @@ import { Button } from "../components/ui/button"
 import { Plus, RefreshCw, Copy, Check, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { getAuthHeader } from "../lib/auth"
+import { API_BASE } from "../lib/api"
 
 export default function TokensPage() {
   const [keys, setKeys] = useState<string[]>([])
   const [copied, setCopied] = useState<string | null>(null)
 
   const fetchKeys = () => {
-    fetch("/api/admin/keys", { headers: getAuthHeader() })
+    fetch(`${API_BASE}/api/admin/keys`, { headers: getAuthHeader() })
       .then(res => {
         if (!res.ok) throw new Error("Unauthorized")
         return res.json()
@@ -23,7 +24,7 @@ export default function TokensPage() {
   }, [])
 
   const handleGenerate = () => {
-    fetch("/api/admin/keys", {
+    fetch(`${API_BASE}/api/admin/keys`, {
       method: "POST",
       headers: getAuthHeader()
     }).then(res => {
@@ -37,7 +38,7 @@ export default function TokensPage() {
   }
 
   const handleDelete = (key: string) => {
-    fetch(`/api/admin/keys/${encodeURIComponent(key)}`, {
+    fetch(`${API_BASE}/api/admin/keys/${encodeURIComponent(key)}`, {
       method: "DELETE",
       headers: getAuthHeader()
     }).then(res => {

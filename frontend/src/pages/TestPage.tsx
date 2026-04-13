@@ -1,15 +1,61 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Button } from "../components/ui/button"
 import { Send, RefreshCw, Bot } from "lucide-react"
 import { getAuthHeader } from "../lib/auth"
+import { API_BASE } from "../lib/api"
 import { toast } from "sonner"
 
+// 渲染消息内容：自动把 Markdown 图片和图片 URL 渲染成 <img>
+function MessageContent({ content }: { content: string }) {
+  type Seg = { start: number; end: number; url: string }
+  const segs: Seg[] = []
+  const fullRe = /!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)|(https?:\/\/[^\s"<>]+\.(?:jpg|jpeg|png|webp|gif)[^\s"<>]*)/gi
+  let m: RegExpExecArray | null
+  while ((m = fullRe.exec(content)) !== null) {
+    segs.push({ start: m.index, end: m.index + m[0].length, url: (m[1] || m[2]) as string })
+  }
+
+  if (segs.length === 0) {
+    return <div className="whitespace-pre-wrap leading-relaxed">{content}</div>
+  }
+
+  const nodes: JSX.Element[] = []
+  let cursor = 0
+  segs.forEach((seg, i) => {
+    if (seg.start > cursor) {
+      nodes.push(<span key={"t" + i}>{content.slice(cursor, seg.start)}</span>)
+    }
+    nodes.push(
+      <div key={"i" + i} className="my-2">
+        <img
+          src={seg.url}
+          alt="generated"
+          className="max-w-full rounded-lg shadow-md border"
+          loading="lazy"
+          onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none" }}
+        />
+        <div className="text-xs text-muted-foreground mt-1 break-all font-mono">{seg.url}</div>
+      </div>
+    )
+    cursor = seg.end
+  })
+  if (cursor < content.length) {
+    nodes.push(<span key="tail">{content.slice(cursor)}</span>)
+  }
+  return <div className="whitespace-pre-wrap leading-relaxed">{nodes}</div>
+}
+
 export default function TestPage() {
-  const [messages, setMessages] = useState<{ role: string; content: string }[]>([])
+  const [messages, setMessages] = useState<{ role: string; content: string; error?: boolean }[]>([])
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
   const [model, setModel] = useState("qwen3.6-plus")
   const [stream, setStream] = useState(true)
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [messages])
 
   const handleSend = async () => {
     if (!input.trim() || loading) return
@@ -20,64 +66,85 @@ export default function TestPage() {
 
     try {
       if (!stream) {
-        const res = await fetch("/v1/chat/completions", {
+        const res = await fetch(`${API_BASE}/v1/chat/completions`, {
           method: "POST",
           headers: { "Content-Type": "application/json", ...getAuthHeader() },
-          body: JSON.stringify({
-            model,
-            messages: [...messages, userMsg],
-            stream: false
-          })
+          body: JSON.stringify({ model, messages: [...messages, userMsg], stream: false })
         })
-        
         const data = await res.json()
-        if (data.choices && data.choices[0]) {
+        if (data.error) {
+          setMessages(prev => [...prev, { role: "assistant", content: `❌ ${data.error}`, error: true }])
+        } else if (data.choices?.[0]) {
           setMessages(prev => [...prev, data.choices[0].message])
         } else {
-          toast.error("请求失败，请检查账号池和余额")
-          setMessages(prev => [...prev, { role: "assistant", content: `❌ 请求失败: ${JSON.stringify(data)}` }])
+          setMessages(prev => [...prev, { role: "assistant", content: `❌ 未知响应: ${JSON.stringify(data)}`, error: true }])
         }
       } else {
-        // Stream handling
-        const res = await fetch("/v1/chat/completions", {
+        const res = await fetch(`${API_BASE}/v1/chat/completions`, {
           method: "POST",
           headers: { "Content-Type": "application/json", ...getAuthHeader() },
-          body: JSON.stringify({
-            model,
-            messages: [...messages, userMsg],
-            stream: true
-          })
+          body: JSON.stringify({ model, messages: [...messages, userMsg], stream: true })
         })
-        if (!res.body) throw new Error("No body")
+
+        if (!res.ok) {
+          const errText = await res.text()
+          setMessages(prev => [...prev, { role: "assistant", content: `❌ HTTP ${res.status}: ${errText}`, error: true }])
+          return
+        }
+
+        if (!res.body) throw new Error("No response body")
+
+        setMessages(prev => [...prev, { role: "assistant", content: "" }])
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
-        setMessages(prev => [...prev, { role: "assistant", content: "" }])
-        
+        let hasContent = false
+
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
-          const chunk = decoder.decode(value)
-          const lines = chunk.split("\n")
-          for (let line of lines) {
-            line = line.trim()
-            if (!line || line === "data: [DONE]") continue
+
+          const chunk = decoder.decode(value, { stream: true })
+          for (const rawLine of chunk.split("\n")) {
+            const line = rawLine.trim()
+            if (!line || line.startsWith(":") || line === "data: [DONE]") continue
             if (line.startsWith("data: ")) {
               try {
                 const data = JSON.parse(line.slice(6))
-                const content = data.choices[0]?.delta?.content || ""
-                setMessages(prev => {
-                  const newMsgs = [...prev]
-                  newMsgs[newMsgs.length - 1].content += content
-                  return newMsgs
-                })
-              } catch(e) {}
+                if (data.error) {
+                  setMessages(prev => {
+                    const msgs = [...prev]
+                    msgs[msgs.length - 1] = { role: "assistant", content: `❌ ${data.error}`, error: true }
+                    return msgs
+                  })
+                  hasContent = true
+                  break
+                }
+                const content: string = data.choices?.[0]?.delta?.content ?? ""
+                if (content) {
+                  hasContent = true
+                  setMessages(prev => {
+                    const msgs = [...prev]
+                    const last = msgs[msgs.length - 1]
+                    msgs[msgs.length - 1] = { ...last, content: last.content + content }
+                    return msgs
+                  })
+                }
+              } catch (_) { /* skip */ }
             }
           }
         }
+
+        if (!hasContent) {
+          setMessages(prev => {
+            const msgs = [...prev]
+            msgs[msgs.length - 1] = { role: "assistant", content: "❌ 响应为空（账号可能未激活或无可用账号）", error: true }
+            return msgs
+          })
+        }
       }
     } catch (err: any) {
-      toast.error("网络错误")
-      setMessages(prev => [...prev, { role: "assistant", content: `❌ 网络错误: ${err.message}` }])
+      toast.error(`网络错误: ${err.message}`)
+      setMessages(prev => [...prev, { role: "assistant", content: `❌ 网络错误: ${err.message}`, error: true }])
     } finally {
       setLoading(false)
     }
@@ -99,7 +166,10 @@ export default function TestPage() {
               <option value="qwen-turbo">qwen-turbo</option>
             </select>
           </div>
-          <div className="flex items-center gap-2 text-sm bg-card border px-3 py-1.5 rounded-md cursor-pointer" onClick={() => setStream(!stream)}>
+          <div
+            className="flex items-center gap-2 text-sm bg-card border px-3 py-1.5 rounded-md cursor-pointer"
+            onClick={() => setStream(!stream)}
+          >
             <input type="checkbox" checked={stream} onChange={() => {}} className="cursor-pointer" />
             <span className="font-medium">流式传输 (Stream)</span>
           </div>
@@ -119,32 +189,39 @@ export default function TestPage() {
           )}
           {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[80%] rounded-xl px-4 py-3 text-sm shadow-sm ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted/30 border text-foreground"}`}>
-                <div className="whitespace-pre-wrap leading-relaxed">{msg.content}</div>
+              <div className={`max-w-[80%] rounded-xl px-4 py-3 text-sm shadow-sm
+                ${msg.role === "user"
+                  ? "bg-primary text-primary-foreground"
+                  : msg.error
+                    ? "bg-red-500/10 border border-red-500/30 text-red-400"
+                    : "bg-muted/30 border text-foreground"}`}>
+                {msg.role === "assistant" && !msg.content && loading ? (
+                  <span className="animate-pulse flex items-center gap-2 text-muted-foreground">
+                    <Bot className="h-4 w-4" /> 思考中...
+                  </span>
+                ) : msg.role === "assistant" && !msg.error ? (
+                  <MessageContent content={msg.content} />
+                ) : (
+                  <div className="whitespace-pre-wrap leading-relaxed">{msg.content}</div>
+                )}
               </div>
             </div>
           ))}
-          {loading && !stream && (
-            <div className="flex justify-start">
-              <div className="max-w-[80%] rounded-xl px-4 py-3 text-sm shadow-sm bg-muted/30 border text-foreground">
-                <span className="animate-pulse flex items-center gap-2"><Bot className="h-4 w-4" /> 思考中...</span>
-              </div>
-            </div>
-          )}
+          <div ref={bottomRef} />
         </div>
-        
+
         <div className="p-4 border-t bg-muted/30 flex gap-3 items-center">
-          <input 
-            type="text" 
-            value={input} 
-            onChange={e => setInput(e.target.value)} 
+          <input
+            type="text"
+            value={input}
+            onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === "Enter" && handleSend()}
-            className="flex h-12 w-full rounded-md border border-input bg-background px-4 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50" 
-            placeholder="输入测试消息..." 
+            className="flex h-12 w-full rounded-md border border-input bg-background px-4 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            placeholder="输入测试消息..."
             disabled={loading}
           />
           <Button onClick={handleSend} disabled={loading || !input.trim()} className="h-12 px-6">
-            <Send className="h-4 w-4" />
+            {loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </Button>
         </div>
       </div>

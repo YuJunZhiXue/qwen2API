@@ -1,73 +1,104 @@
 import asyncio
 import logging
 import os
+import random
 from contextlib import asynccontextmanager
+from backend.core.config import settings
 
 log = logging.getLogger("qwen2api.browser")
 
-JS_FETCH = """
-async (args) => {
-    const opts = {
-        method: args.method,
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + args.token
-        }
-    };
-    if (args.body) opts.body = JSON.stringify(args.body);
-    const res = await fetch(args.url, opts);
-    const text = await res.text();
-    return { status: res.status, body: text };
-}
-"""
 
-JS_STREAM_FULL = """
-async (args) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 1800000);  // 1800s timeout
-    try {
-        const res = await fetch(args.url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + args.token
-            },
-            body: JSON.stringify(args.payload),
-            signal: controller.signal
-        });
-        if (!res.ok) {
-            const t = await res.text();
-            clearTimeout(timer);
-            return { status: res.status, body: t.substring(0, 2000) };
-        }
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let body = '';
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            body += decoder.decode(value, { stream: true });
-        }
-        clearTimeout(timer);
-        return { status: res.status, body: body };
-    } catch(e) {
-        clearTimeout(timer);
-        return { status: 0, body: 'JS error: ' + e.message };
-    }
-}
-"""
+def _request_jitter_seconds() -> float:
+    low = max(0, settings.REQUEST_JITTER_MIN_MS)
+    high = max(low, settings.REQUEST_JITTER_MAX_MS)
+    return random.uniform(low, high) / 1000.0
+
+JS_FETCH = (
+    "async (args) => {"
+    "const opts={method:args.method,headers:{'Content-Type':'application/json','Authorization':'Bearer '+args.token}};"
+    "if(args.body)opts.body=JSON.stringify(args.body);"
+    "const res=await fetch(args.url,opts);"
+    "const text=await res.text();"
+    "return{status:res.status,body:text};"
+    "}"
+)
+
+# 完整流式函数，单行字符串，避免 Camoufox page.evaluate 多行 JS 报错
+# 不依赖 window.__qwen_stream_fetch，自包含
+JS_STREAM_CHUNKED = (
+    "async (args) => {"
+    "const ctrl=new AbortController();"
+    "const tmr=setTimeout(()=>ctrl.abort(),1800000);"
+    "try{"
+    "const bin=atob(args.payload_b64);"
+    "const bytes=Uint8Array.from(bin,c=>c.charCodeAt(0));"
+    "const body=new TextDecoder().decode(bytes);"
+    "const res=await fetch(args.url,{method:'POST',"
+    "headers:{'Content-Type':'application/json','Authorization':'Bearer '+args.token},"
+    "body:body,signal:ctrl.signal});"
+    "if(!res.ok){"
+    "const t=await res.text();clearTimeout(tmr);"
+    "return{status:res.status,body:t.substring(0,2000)};}"
+    "const rdr=res.body.getReader();"
+    "const dec=new TextDecoder();"
+    "let buf='';"
+    "while(true){"
+    "const{done,value}=await rdr.read();"
+    "if(done){if(buf)await window.send_chunk(args.chat_id,buf);break;}"
+    "buf+=dec.decode(value,{stream:true});"
+    "if(buf.includes('\\n\\n')||buf.length>=200){"
+    "await window.send_chunk(args.chat_id,buf);buf='';}"
+    "}"
+    "clearTimeout(tmr);"
+    "return{status:200,body:'__DONE__'};"
+    "}catch(e){"
+    "clearTimeout(tmr);"
+    "return{status:0,body:'JS error: '+e.message};"
+    "}}"
+)
+
+JS_STREAM_FULL = (
+    "async (args) => {"
+    "const ctrl=new AbortController();"
+    "const tmr=setTimeout(()=>ctrl.abort(),1800000);"
+    "try{"
+    "const res=await fetch(args.url,{method:'POST',"
+    "headers:{'Content-Type':'application/json','Authorization':'Bearer '+args.token},"
+    "body:JSON.stringify(args.payload),signal:ctrl.signal});"
+    "if(!res.ok){"
+    "const t=await res.text();clearTimeout(tmr);"
+    "return{status:res.status,body:t.substring(0,2000)};}"
+    "const rdr=res.body.getReader();"
+    "const dec=new TextDecoder();"
+    "let body='';"
+    "while(true){"
+    "const{done,value}=await rdr.read();"
+    "if(done)break;"
+    "body+=dec.decode(value,{stream:true});}"
+    "clearTimeout(tmr);"
+    "return{status:res.status,body:body};"
+    "}catch(e){"
+    "clearTimeout(tmr);"
+    "return{status:0,body:'JS error: '+e.message};"
+    "}}"
+)
 
 _CAMOUFOX_OPTS = {
     "headless": True,
-    "humanize": False,
+    "humanize": True,               # 启用人类化延迟，行为更自然
     "i_know_what_im_doing": True,
+    "os": "windows",                # 明确 Windows 指纹，与服务器一致
+    "locale": "zh-CN",              # 中文用户语言
     "firefox_user_prefs": {
-        "layers.acceleration.disabled": True,
-        "gfx.webrender.enabled": False,
-        "gfx.webrender.all": False,
-        "gfx.webrender.software": False,
-        "gfx.canvas.azure.backends": "skia",
-        "media.hardware-video-decoding.enabled": False,
+        # 用软件 WebRender 替代完全禁用，真实机器通常开启 WebRender
+        "gfx.webrender.software": True,
+        "media.hardware-video-decoding.enabled": False,  # 服务器无 GPU，仅关闭硬件视频解码
+        # 启用缓存，更像真实用户
+        "browser.cache.disk.enable": True,
+        "browser.cache.memory.enable": True,
+        # 关闭自动更新弹窗等干扰
+        "app.update.auto": False,
+        "browser.shell.checkDefaultBrowser": False,
     },
 }
 
@@ -109,26 +140,19 @@ class BrowserEngine:
 
     async def _init_pages(self):
         log.info(f"[Browser] 正在初始化 {self.pool_size} 个并发渲染引擎页面...")
-        self.stream_queues = {}  # chat_id -> asyncio.Queue()
-
-        async def handle_chunk(chat_id, chunk):
-            if chat_id in self.stream_queues:
-                self.stream_queues[chat_id].put_nowait(chunk)
-
         for i in range(self.pool_size):
             page = await self._browser.new_page()
             try:
-                await page.expose_function("send_chunk", handle_chunk)
-            except Exception as e:
-                log.error(f"[Browser] expose_function failed: {e}")
-
+                await page.set_viewport_size({"width": 1920, "height": 1080})
+            except Exception:
+                pass
             try:
                 await page.goto(self.base_url, wait_until="domcontentloaded", timeout=60000)
             except Exception:
                 pass
             await asyncio.sleep(0.5)
             self._pages.put_nowait(page)
-            log.info(f"  [Browser] Page {i+1}/{self.pool_size} ready (等待接入千问核心数据)")
+            log.info(f"  [Browser] Page {i+1}/{self.pool_size} ready")
 
     @staticmethod
     async def _ensure_browser_installed():
@@ -176,17 +200,16 @@ class BrowserEngine:
         await asyncio.wait_for(self._ready.wait(), timeout=300)
         if not self._started:
             return {"status": 0, "body": "Browser engine failed to start"}
-        # Wait queue: timeout protects the system from hanging
         try:
             page = await asyncio.wait_for(self._pages.get(), timeout=60)
         except asyncio.TimeoutError:
-            log.warning("[Browser] Queue timeout (60s) — No available pages.")
             return {"status": 429, "body": "Too Many Requests (Queue full)"}
-            
+
         needs_refresh = False
         try:
+            await asyncio.sleep(_request_jitter_seconds())
             result = await page.evaluate(JS_FETCH, {
-                "method": method, "url": path, "token": token, "body": body,
+                "method": method, "url": path, "token": token, "body": body or {},
             })
             if result.get("status") == 0 and result.get("body", "").startswith("JS error:"):
                 needs_refresh = True
@@ -201,7 +224,8 @@ class BrowserEngine:
             else:
                 self._pages.put_nowait(page)
 
-    async def fetch_chat(self, token: str, chat_id: str, payload: dict):
+    async def fetch_chat(self, token: str, chat_id: str, payload: dict, buffered: bool = False):
+        """Camoufox Firefox 完整收取 SSE 响应后一次性返回，绕开 expose_function 跨语言回调限制。"""
         await asyncio.wait_for(self._ready.wait(), timeout=300)
         if not self._started:
             yield {"status": 0, "body": "Browser engine failed to start"}
@@ -210,21 +234,20 @@ class BrowserEngine:
         try:
             page = await asyncio.wait_for(self._pages.get(), timeout=60)
         except asyncio.TimeoutError:
-            log.warning("[Browser] Fetch chat queue timeout (60s) — No available pages.")
             yield {"status": 429, "body": "Too Many Requests (Queue full)"}
             return
 
         needs_refresh = False
         url = f'/api/v2/chat/completions?chat_id={chat_id}'
         try:
+            await asyncio.sleep(_request_jitter_seconds())
             res = await asyncio.wait_for(
                 page.evaluate(JS_STREAM_FULL, {"url": url, "token": token, "payload": payload}),
                 timeout=1800,
             )
-            if res.get("status") != 200:
-                log.warning(f"[Browser] JS Error/Non-200: {res.get('body','')[:100]}")
+            if isinstance(res, dict) and res.get("status") == 0:
                 needs_refresh = True
-            yield res
+            yield res if isinstance(res, dict) else {"status": 0, "body": str(res)}
         except asyncio.TimeoutError:
             needs_refresh = True
             yield {"status": 0, "body": "Timeout"}

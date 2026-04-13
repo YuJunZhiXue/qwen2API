@@ -10,6 +10,7 @@ import random
 import string
 import time
 import json
+import html as html_lib
 import re
 from typing import Optional
 from camoufox.async_api import AsyncCamoufox
@@ -17,6 +18,33 @@ from camoufox.async_api import AsyncCamoufox
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://chat.qwen.ai"
+
+async def _verify_qwen_token(token: str) -> bool:
+    if not token:
+        return False
+    try:
+        import httpx
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Referer": "https://chat.qwen.ai/",
+            "Origin": "https://chat.qwen.ai",
+            "Connection": "keep-alive"
+        }
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(f"{BASE_URL}/api/v1/auths/", headers=headers)
+        if resp.status_code != 200:
+            return False
+        try:
+            data = resp.json()
+            return data.get("role") == "user"
+        except Exception:
+            txt = resp.text.lower()
+            return 'aliyun_waf' in txt or '<!doctype' in txt
+    except Exception:
+        return False
 
 from backend.core.browser_engine import _new_browser
 
@@ -40,6 +68,116 @@ def _gen_username():
     return f"{first} {last}"
 
 MAIL_BASE = "https://mail.chatgpt.org.uk"
+MAIL_LINK_KEYWORDS = ("qwen", "verify", "activate", "confirm", "aliyun", "alibaba", "qwenlm")
+
+async def _extract_verify_link_from_page(page) -> str:
+    js_find_link = """() => {
+        const keywords = ['qwen', 'verify', 'activate', 'confirm', 'aliyun', 'alibaba', 'qwenlm'];
+        const links = Array.from(document.querySelectorAll('a[href]'));
+        for (const link of links) {
+            const href = link.href || '';
+            const text = (link.textContent || '').toLowerCase();
+            if (keywords.some((keyword) => href.toLowerCase().includes(keyword))) return href;
+            if (keywords.some((keyword) => text.includes(keyword)) && href.startsWith('http')) return href;
+        }
+        const html = document.body ? document.body.innerHTML : '';
+        const matches = html.match(/https?:\\/\\/[^"'\\s<>\\\\]+/g) || [];
+        for (const match of matches) {
+            if (keywords.some((keyword) => match.toLowerCase().includes(keyword))) return match;
+        }
+        return null;
+    }"""
+
+    try:
+        iframe_el = await page.query_selector('#emailFrame')
+        if iframe_el:
+            await asyncio.sleep(3)
+            frame = await iframe_el.content_frame()
+            if frame:
+                verify_link = await frame.evaluate(js_find_link)
+                if verify_link:
+                    return verify_link
+    except Exception as e:
+        log.debug(f"[Activate] iframe read failed: {e}")
+
+    try:
+        return await page.evaluate(js_find_link) or ""
+    except Exception:
+        return ""
+
+async def _find_verify_link_via_mail_page(email: str) -> str:
+    mail_url = f"{MAIL_BASE}/{email}"
+    try:
+        async with _new_browser() as browser:
+            page = await browser.new_page()
+            try:
+                await page.goto(mail_url, wait_until="networkidle", timeout=30000)
+            except Exception:
+                try:
+                    await page.goto(mail_url, wait_until="domcontentloaded", timeout=15000)
+                except Exception:
+                    pass
+            await asyncio.sleep(6)
+
+            # Dismiss the site announcement modal if present; it intercepts pointer events.
+            try:
+                await page.evaluate("""() => {
+                    const modal = document.querySelector('#siteAnnouncementModal');
+                    if (modal) {
+                        modal.classList.remove('active');
+                        modal.setAttribute('aria-hidden', 'true');
+                        modal.style.display = 'none';
+                        modal.style.pointerEvents = 'none';
+                    }
+                    document.querySelectorAll('.modal-overlay, .announcement-modal-overlay').forEach((el) => {
+                        el.classList.remove('active');
+                        el.setAttribute('aria-hidden', 'true');
+                        el.style.display = 'none';
+                        el.style.pointerEvents = 'none';
+                    });
+                }""")
+                await asyncio.sleep(0.5)
+            except Exception:
+                pass
+
+            clicked_email = False
+            for sel in ['#emailList li:first-child', '#emailList li', '[class*="EmailItem"]',
+                        '[class*="email-item"]', '[class*="MailItem"]', '[class*="mail-item"]',
+                        'table tbody tr:first-child', '[role="row"]:first-child']:
+                try:
+                    await page.wait_for_selector(sel, timeout=10000)
+                    el = await page.query_selector(sel)
+                    if el:
+                        await el.click(force=True)
+                        await asyncio.sleep(4)
+                        clicked_email = True
+                        break
+                except Exception:
+                    pass
+
+            if not clicked_email:
+                for sel in ['li', 'tr', 'div[class]', '[class*="row"]', '[class*="item"]']:
+                    try:
+                        els = await page.query_selector_all(sel)
+                        for el in (els or [])[:10]:
+                            try:
+                                text = await el.inner_text()
+                                if any(keyword in text.lower() for keyword in MAIL_LINK_KEYWORDS):
+                                    await el.click(force=True)
+                                    await asyncio.sleep(4)
+                                    clicked_email = True
+                                    break
+                            except Exception:
+                                pass
+                        if clicked_email:
+                            break
+                    except Exception:
+                        pass
+
+            return await _extract_verify_link_from_page(page)
+    except Exception as e:
+        log.warning(f"[Activate] mailbox page fallback failed for {email}: {e}")
+        return ""
 
 class _EmailSession:
     def __init__(self):
@@ -84,6 +222,67 @@ class _EmailSession:
             return self._init_session()
         return True
 
+    def _set_auth(self, auth_data: dict):
+        if not isinstance(auth_data, dict):
+            return
+        new_tok = str(auth_data.get("token", "") or "").strip()
+        if new_tok:
+            self._current_token = new_tok
+        self._token_expires_at = int(auth_data.get("expires_at", 0) or 0)
+        self._initialized = bool(self._current_token)
+
+    def _refresh_mailbox_token(self, email: str) -> bool:
+        email = str(email or "").strip().lower()
+        if not email:
+            return False
+        try:
+            resp = self._session.post(
+                f"{MAIL_BASE}/api/inbox-token",
+                json={"email": email},
+                headers={"content-type": "application/json", "referer": f"{MAIL_BASE}/{email}"},
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                return False
+            data = resp.json()
+            if not data.get("success") or not data.get("auth"):
+                return False
+            self._set_auth(data.get("auth", {}))
+            return bool(self._current_token)
+        except Exception as e:
+            log.warning(f"[MailSession] refresh mailbox token error for {email}: {e}")
+            return False
+
+    def _extract_verify_link_from_email_record(self, msg: dict) -> str:
+        subject = str(msg.get("subject", ""))
+        parts = []
+        for field in ("html_content", "content", "body", "html", "text", "raw"):
+            v = msg.get(field)
+            if v:
+                parts.append(str(v))
+        for field in ("payload", "data", "message"):
+            v = msg.get(field)
+            if isinstance(v, dict):
+                parts.extend(str(x) for x in v.values() if x)
+            elif isinstance(v, str) and v:
+                parts.append(v)
+        combined = " ".join(parts)
+        combined = html_lib.unescape(combined)
+        combined = (combined.replace("\u003c", "<").replace("\u003e", ">")
+                            .replace("\u0026", "&").replace("\\/", "/"))
+
+        href_links = re.findall(r"href=[\"'](https?://[^\"']+)[\"']", combined, flags=re.IGNORECASE)
+        text_links = re.findall(r"https?://[^\s\"'<>\,\)]+", combined)
+        for link in href_links + text_links:
+            link = link.rstrip('.,;)')
+            if any(keyword in link.lower() for keyword in MAIL_LINK_KEYWORDS):
+                return link
+        if any(keyword in subject.lower() for keyword in MAIL_LINK_KEYWORDS):
+            for link in href_links + text_links:
+                if link.startswith('http'):
+                    return link.rstrip('.,;)')
+        return ""
+
     def get_email(self) -> str:
         if not self._ensure_token():
             raise Exception("mail.chatgpt.org.uk: session init failed")
@@ -113,74 +312,78 @@ class _EmailSession:
         return email
 
     def poll_verify_link(self, email: str, timeout_sec: int = 300) -> str:
-        keywords = ("qwen", "verify", "activate", "confirm", "aliyun", "alibaba", "qwenlm")
+        email = str(email or "").strip().lower()
         log.info(f"[MailSession] Polling inbox for {email} (timeout {timeout_sec}s)...")
         deadline = time.time() + timeout_sec
         attempt = 0
         while time.time() < deadline:
             attempt += 1
             try:
-                # 尝试获取最新 token，如果缺失的话
-                if not self._current_token:
-                    self._init_session()
-                    
+                if not self._refresh_mailbox_token(email):
+                    if not self._ensure_token():
+                        time.sleep(2)
+                        continue
+
                 resp = self._session.get(
                     f"{MAIL_BASE}/api/emails",
                     params={"email": email},
-                    headers={"accept": "*/*", "referer": f"{MAIL_BASE}/",
-                             "x-inbox-token": self._current_token},
+                    headers={
+                        "accept": "*/*",
+                        "referer": f"{MAIL_BASE}/{email}",
+                        "x-inbox-token": self._current_token,
+                    },
                     timeout=15,
                 )
-                if resp.status_code == 401 or resp.status_code == 403:
-                    self._initialized = False
-                    self._init_session()
-                    time.sleep(3)
-                    continue
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if data.get("auth", {}).get("token"):
-                        self._current_token = data["auth"]["token"]
-                        self._token_expires_at = data["auth"].get("expires_at", 0)
-                    emails_list = data.get("data", {}).get("emails", [])
-                    log.info(f"[MailSession] 第{attempt}次轮询，收件箱邮件数: {len(emails_list)}")
-                    for msg in emails_list:
-                        subject = str(msg.get("subject", ""))
-                        parts = []
-                        for field in ("html_content", "content", "body", "html", "text", "raw"):
-                            v = msg.get(field)
-                            if v: parts.append(str(v))
-                        for field in ("payload", "data", "message"):
-                            v = msg.get(field)
-                            if isinstance(v, dict): parts.extend(str(x) for x in v.values() if x)
-                            elif isinstance(v, str) and v: parts.append(v)
-                        combined = " ".join(parts)
-                        combined = (combined.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-                                    .replace("\\u003c", "<").replace("\\u003e", ">")
-                                    .replace("\\u0026", "&").replace("\\/", "/"))
-                        all_links = re.findall(r'https?://[^\s"\'<>\\,\)]+', combined)
-                        for link in all_links:
-                            link = link.rstrip(".,;)")
-                            if any(kw in link.lower() for kw in keywords):
-                                log.info(f"[MailSession] 找到验证链接: {link[:120]}...")
-                                return link
-                        if any(kw in subject.lower() for kw in keywords) and all_links:
-                            return all_links[0]
-                elif resp.status_code == 403:
-                    data = resp.json()
-                    if data.get("error") == "Mailbox access denied":
-                        log.warning(f"[MailSession] 邮件API HTTP 403: Mailbox access denied. 可能是Token过期。重新初始化 Session...")
-                        self._initialized = False
-                        self._init_session()
-                        time.sleep(3)
+
+                if resp.status_code in (401, 403):
+                    try:
+                        data = resp.json()
+                    except Exception:
+                        data = {}
+                    if data.get("auth"):
+                        self._set_auth(data.get("auth", {}))
+                        resp = self._session.get(
+                            f"{MAIL_BASE}/api/emails",
+                            params={"email": email},
+                            headers={
+                                "accept": "*/*",
+                                "referer": f"{MAIL_BASE}/{email}",
+                                "x-inbox-token": self._current_token,
+                            },
+                            timeout=15,
+                        )
+                    elif not self._refresh_mailbox_token(email):
+                        time.sleep(2)
                         continue
                     else:
-                        log.warning(f"[MailSession] 邮件API HTTP 403: {resp.text[:100]}")
+                        resp = self._session.get(
+                            f"{MAIL_BASE}/api/emails",
+                            params={"email": email},
+                            headers={
+                                "accept": "*/*",
+                                "referer": f"{MAIL_BASE}/{email}",
+                                "x-inbox-token": self._current_token,
+                            },
+                            timeout=15,
+                        )
+
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get("auth"):
+                        self._set_auth(data.get("auth", {}))
+                    emails_list = data.get("data", {}).get("emails", [])
+                    log.info(f"[邮件] 第 {attempt} 次轮询，收到 {len(emails_list)} 封邮件")
+                    for msg in emails_list:
+                        link = self._extract_verify_link_from_email_record(msg)
+                        if link:
+                            log.info(f"[邮件] 找到验证链接：{link[:160]}...")
+                            return link
                 else:
-                    log.warning(f"[MailSession] 邮件API HTTP {resp.status_code}: {resp.text[:100]}")
+                    log.warning(f"[MailSession] email API HTTP {resp.status_code}: {resp.text[:120]}")
             except Exception as e:
-                log.warning(f"[MailSession] 轮询异常: {e}")
-            time.sleep(5)
-        log.error("[MailSession] 超时：未收到验证邮件")
+                log.warning(f"[MailSession] poll error: {e}")
+            time.sleep(2)
+        log.error("[邮件] 轮询超时，未找到验证邮件")
         return ""
 
 class _AsyncMailClient:
@@ -305,13 +508,16 @@ async def register_qwen_account() -> Optional[Account]:
                     except Exception as e:
                         log.warning(f"[Register] [5/7] 直接登录失败: {e}")
 
-                # If still no token, poll email for verification link
+                # If still no token, use mailbox email API first, then fall back to page lookup.
                 if not token:
-                    log.info("[Register] [6/7] 等待验证邮件（最多5分钟）...")
-                    verify_link = await mail_client.get_verify_link(timeout_sec=300)
+                    log.info(f"[Register] [6/7] polling mailbox email API for {email}...")
+                    verify_link = await mail_client.get_verify_link(timeout_sec=60)
+                    if not verify_link:
+                        log.info(f"[注册] [6/7] 邮件 API 未返回链接，尝试页面方式 {email}")
+                        verify_link = await _find_verify_link_via_mail_page(email)
 
                     if not verify_link:
-                        log.error("[Register] [6/7] 未收到验证邮件，注册失败")
+                        log.error("[Register] [6/7] verification email not found")
                         return None
 
                     log.info(f"[Register] [6/7] ✓ 收到验证链接，访问中...")
@@ -354,23 +560,141 @@ async def register_qwen_account() -> Optional[Account]:
             log.error(f"[Register] 注册异常: {e}\n{traceback.format_exc()}")
             return None
 
-async def activate_account(acc: Account) -> bool:
-    """Use API to poll for Qwen activation link, click it, then login to get a fresh token. Returns True on success."""
-    log.info(f"[Activate] 开始激活 {acc.email}，通过 API 轮询邮箱...")
+async def _login_and_get_token(page, email: str, password: str, timeout_sec: int = 20) -> str:
     try:
-        async with _AsyncMailClient() as mail_client:
-            verify_link = await mail_client.get_verify_link_for_email(acc.email, timeout_sec=120)
-            
+        await page.goto(f"{BASE_URL}/auth", wait_until="domcontentloaded", timeout=30000)
+    except Exception:
+        pass
+    await asyncio.sleep(2)
+
+    email_input = None
+    pwd_input = None
+    try:
+        email_input = await page.query_selector('input[placeholder*="Email"]')
+    except Exception:
+        email_input = None
+    try:
+        pwd_input = await page.query_selector('input[type="password"]')
+    except Exception:
+        pwd_input = None
+
+    if (not email_input) or (not pwd_input):
+        try:
+            inputs = await page.query_selector_all('input')
+        except Exception:
+            inputs = []
+        text_inputs = []
+        for item in inputs:
+            try:
+                t = await item.get_attribute('type')
+            except Exception:
+                t = None
+            if t in (None, '', 'text', 'email'):
+                text_inputs.append(item)
+        if not email_input and text_inputs:
+            email_input = text_inputs[0]
+        if not pwd_input:
+            for item in inputs:
+                try:
+                    t = await item.get_attribute('type')
+                except Exception:
+                    t = None
+                if t == 'password':
+                    pwd_input = item
+                    break
+
+    if email_input:
+        try:
+            await email_input.click()
+        except Exception:
+            pass
+        await email_input.fill(email)
+    if pwd_input:
+        try:
+            await pwd_input.click()
+        except Exception:
+            pass
+        await pwd_input.fill(password)
+
+    submit = None
+    for sel in [
+        'button:has-text("Log in")',
+        'button[type="submit"]:not([disabled])',
+        'button[type="submit"]',
+        'button:has-text("Continue")',
+    ]:
+        try:
+            submit = await page.query_selector(sel)
+            if submit:
+                disabled = await submit.get_attribute('disabled')
+                aria_disabled = await submit.get_attribute('aria-disabled')
+                if disabled is None and aria_disabled not in ('true', 'disabled'):
+                    break
+        except Exception:
+            pass
+
+    clicked = False
+    if submit:
+        try:
+            await submit.click(timeout=5000)
+            clicked = True
+        except Exception:
+            try:
+                await submit.click(force=True, timeout=3000)
+                clicked = True
+            except Exception:
+                pass
+
+    if not clicked and pwd_input:
+        try:
+            await pwd_input.press('Enter')
+        except Exception:
+            pass
+
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        try:
+            token = await page.evaluate("localStorage.getItem('token')")
+        except Exception:
+            token = None
+        if token:
+            return token
+        await asyncio.sleep(1)
+    return ""
+
+async def activate_account(acc: Account) -> bool:
+    """Use inbox API first, then mailbox-page fallback, to activate an account."""
+    started_at = float(getattr(acc, "_activation_started_at", 0) or 0)
+    if getattr(acc, "_is_activating", False):
+        if started_at and (time.time() - started_at) < 90:
+            log.info(f"[激活] {acc.email} 正在激活中，跳过重复调用")
+            return acc.valid and not acc.activation_pending
+        log.warning(f"[激活] {acc.email} 激活超时，重置激活标志重新尝试")
+        setattr(acc, "_is_activating", False)
+
+    log.info(f"[激活] 开始激活账号 {acc.email}")
+    setattr(acc, "_is_activating", True)
+    setattr(acc, "_activation_started_at", time.time())
+    try:
+        verify_link = ""
+        try:
+            async with _AsyncMailClient() as mail_client:
+                verify_link = await mail_client.get_verify_link_for_email(acc.email, timeout_sec=30)
+        except Exception as e:
+            log.warning(f"[激活] {acc.email} 邮件 API 失败: {e}")
+
         if not verify_link:
-            log.warning(f"[Activate] {acc.email} 邮箱未找到激活链接")
+            log.info(f"[激活] {acc.email} 邮件 API 未返回链接，使用页面方式")
+            verify_link = await _find_verify_link_via_mail_page(acc.email)
+
+        if not verify_link:
+            log.warning(f"[Activate] activation email not found for {acc.email}")
             return False
 
-        log.info(f"[Activate] 找到激活链接: {verify_link[:120]}")
+        log.info(f"[激活] {acc.email} 找到验证链接：{verify_link[:120]}")
 
         async with _new_browser() as browser:
             page = await browser.new_page()
-            
-            # Visit the activation link
             try:
                 await page.goto(verify_link, wait_until="networkidle", timeout=30000)
             except Exception:
@@ -378,41 +702,39 @@ async def activate_account(acc: Account) -> bool:
                     await page.goto(verify_link, wait_until="domcontentloaded", timeout=15000)
                 except Exception:
                     pass
+
             await asyncio.sleep(5)
             token = await page.evaluate("localStorage.getItem('token')")
-            log.info(f"[Activate] 访问激活链接后 URL={page.url}, token={'有' if token else '无'}")
+            log.info(f"[激活] {acc.email} 访问验证链接后 URL={page.url}，Token：{'有' if token else '无'}")
 
-            # If no token yet, try logging in
             if not token and acc.password:
                 try:
-                    await page.goto(f"{BASE_URL}/auth", wait_until="domcontentloaded", timeout=30000)
-                    await asyncio.sleep(3)
-                    li_email = await page.query_selector('input[placeholder*="Email"]')
-                    if li_email:
-                        await li_email.fill(acc.email)
-                    li_pwd = await page.query_selector('input[type="password"]')
-                    if li_pwd:
-                        await li_pwd.fill(acc.password)
-                    li_btn = (await page.query_selector('button:has-text("Log in")') or
-                              await page.query_selector('button[type="submit"]'))
-                    if li_btn:
-                        await li_btn.click()
-                    await asyncio.sleep(8)
-                    token = await page.evaluate("localStorage.getItem('token')")
+                    token = await _login_and_get_token(page, acc.email, acc.password, timeout_sec=20)
                 except Exception as e:
-                    log.warning(f"[Activate] 激活后登录异常: {e}")
+                    log.warning(f"[激活] {acc.email} 登录获取 token 失败: {e}")
 
             if token:
                 acc.token = token
                 acc.valid = True
                 acc.activation_pending = False
-                log.info(f"[Activate] {acc.email} 激活成功，token已更新")
+                log.info(f"[激活] {acc.email} 激活成功")
                 return True
-            log.warning(f"[Activate] {acc.email} 激活后未能获取token")
+
+            # Some activation links make the original token usable again without issuing a new one.
+            if await _verify_qwen_token(acc.token):
+                acc.valid = True
+                acc.activation_pending = False
+                log.info(f"[激活] {acc.email} 旧 Token 仍然有效，激活完成")
+                return True
+
+            log.warning(f"[激活] {acc.email} 激活失败，无法获取 Token")
             return False
     except Exception as e:
-        log.error(f"[Activate] {acc.email} 激活异常: {e}")
+        log.error(f"[激活] {acc.email} 激活异常: {e}")
         return False
+    finally:
+        setattr(acc, "_is_activating", False)
+        setattr(acc, "_activation_started_at", 0)
 
 class AuthResolver:
     """自动登录并提取 Token，在检测到 401 时自动自愈凭证"""
@@ -422,31 +744,38 @@ class AuthResolver:
     async def auto_heal_account(self, acc: Account):
         """Background task to refresh token. If successful, marks account valid.
         If refresh fails or account is pending activation, tries to activate via email."""
+        if getattr(acc, "healing", False):
+            log.info(f"[BGRefresh] {acc.email} healing already in progress")
+            return
+
+        acc.healing = True
         try:
             ok = await self.refresh_token(acc)
             if ok:
                 if not getattr(acc, 'activation_pending', False):
                     acc.valid = True
                     await self.pool.save()
-                    log.info(f"[BGRefresh] {acc.email} token刷新成功，账号已恢复")
+                    log.info(f"[自愈] {acc.email} Token 刷新成功，已标记有效")
                     return
-                # Token refreshed but account still needs activation — don't mark valid yet
-                log.info(f"[BGRefresh] {acc.email} token刷新成功，但账号仍待激活，继续尝试激活...")
+                log.info(f"[BGRefresh] {acc.email} token refreshed but account still needs activation")
             else:
-                log.warning(f"[BGRefresh] {acc.email} 刷新失败，尝试邮件激活...")
-            
+                log.warning(f"[自愈] {acc.email} Token 刷新失败，尝试激活")
+
             activated = await activate_account(acc)
             if activated:
                 acc.activation_pending = False
                 acc.valid = True
-                await self.pool.save()  # 持久化激活状态，重启后不再重复激活
-                log.info(f"[BGRefresh] {acc.email} 邮件激活成功，账号已恢复")
+                await self.pool.save()
+                log.info(f"[自愈] {acc.email} 激活成功，已保存")
             else:
-                log.warning(f"[BGRefresh] {acc.email} 激活失败，账号保持失效")
+                log.warning(f"[自愈] {acc.email} 激活失败")
         except Exception as e:
-            log.warning(f"[BGRefresh] {acc.email} 自动自愈异常: {e}")
+            log.warning(f"[BGRefresh] {acc.email} auto heal failed: {e}")
+        finally:
+            acc.healing = False
 
     async def refresh_token(self, acc: Account) -> bool:
+
         """Re-login with email+password to get a fresh token. Returns True on success."""
         if not acc.email or not acc.password:
             log.warning(f"[Refresh] 账号 {acc.email} 无密码，无法刷新")
@@ -456,24 +785,7 @@ class AuthResolver:
         try:
             async with _new_browser() as browser:
                 page = await browser.new_page()
-                try:
-                    await page.goto(f"{BASE_URL}/auth", wait_until="domcontentloaded", timeout=30000)
-                except Exception:
-                    pass
-                await asyncio.sleep(3)
-                
-                li_email = await page.query_selector('input[placeholder*="Email"]')
-                if li_email:
-                    await li_email.fill(acc.email)
-                li_pwd = await page.query_selector('input[type="password"]')
-                if li_pwd:
-                    await li_pwd.fill(acc.password)
-                li_btn = (await page.query_selector('button:has-text("Log in")') or
-                          await page.query_selector('button[type="submit"]'))
-                if li_btn:
-                    await li_btn.click()
-                await asyncio.sleep(8)
-                new_token = await page.evaluate("localStorage.getItem('token')")
+                new_token = await _login_and_get_token(page, acc.email, acc.password, timeout_sec=20)
                 if new_token and new_token != acc.token:
                     old_prefix = acc.token[:20] if acc.token else "空"
                     acc.token = new_token

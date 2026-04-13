@@ -101,9 +101,13 @@ def build_prompt_with_tools(system_prompt: str, messages: list, tools: list) -> 
             "- No preamble, no explanation before or after ##TOOL_CALL##...##END_CALL##.",
             "- Use EXACT tool name from the list below.",
             "- Prioritize the most recent user request as TOP PRIORITY task.",
-            "- When NO tool is needed, answer normally in plain text.",
-            "- If tools are available and the user asks for external facts/actions, you MUST call a tool first before any final answer.",
-            "- Never call the same tool in more than 2 consecutive turns; if repeated twice already, choose a different tool.",
+            "- You ARE running locally on the user's machine. You HAVE full file system access via Bash/Edit/Write/Read tools.",
+            "- NEVER say 'I cannot access your file system' or 'I am an AI and cannot...' — you CAN and MUST use tools.",
+            "- If a tool result is unexpected or shows an error, immediately try a DIFFERENT approach — do not give up.",
+            "- For file operations: if ~/Desktop/ fails, try /c/Users/Administrator/Desktop/ or /mnt/c/Users/Administrator/Desktop/ or the Windows path C:/Users/Administrator/Desktop/",
+            "- Keep calling tools until the task is FULLY COMPLETE. Never stop mid-task.",
+            "- When NO tool is needed (task fully done), answer normally in plain text.",
+            "- Never call the same tool with the same args in more than 2 consecutive turns; try a different approach.",
             "- If the latest tool result contains 'Unchanged since last read', do not call Read again on the same target.",
             "",
             "ONLY ##TOOL_CALL##...##END_CALL## is accepted.",
@@ -144,7 +148,7 @@ def build_prompt_with_tools(system_prompt: str, messages: list, tools: list) -> 
     NEEDSREVIEW_MARKERS = ("需求回显", "已了解规则", "等待用户输入", "待执行任务", "待确认事项",
                            "[需求回显]", "**需求回显**")
     msg_count = 0
-    max_history_msgs = 12 if tools else 200
+    max_history_msgs = 8 if tools else 200
     for msg in reversed(messages):
         if msg_count >= max_history_msgs:
             break
@@ -167,8 +171,8 @@ def build_prompt_with_tools(system_prompt: str, messages: list, tools: list) -> 
                 )
             elif not isinstance(tool_content, str):
                 tool_content = str(tool_content)
-            if len(tool_content) > 450:
-                tool_content = tool_content[:450] + "...[truncated]"
+            if len(tool_content) > 300:
+                tool_content = tool_content[:300] + "...[truncated]"
             line = f"[Tool Result]{(' id=' + tool_call_id) if tool_call_id else ''}\n{tool_content}\n[/Tool Result]"
             if used + len(line) + 2 > budget and history_parts:
                 break

@@ -3,11 +3,12 @@ import { Settings2, RefreshCw, KeyRound, ServerCrash, Code } from "lucide-react"
 import { Button } from "../components/ui/button"
 import { toast } from "sonner"
 import { getAuthHeader } from "../lib/auth"
+import { API_BASE } from "../lib/api"
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<any>(null)
   const [sessionKey, setSessionKey] = useState("")
-  const [maxInflight, setMaxInflight] = useState(2)
+  const [maxInflight, setMaxInflight] = useState(4)
   const [modelAliases, setModelAliases] = useState("")
   
   const loadSessionKey = () => {
@@ -15,14 +16,14 @@ export default function SettingsPage() {
   }
 
   const fetchSettings = () => {
-    fetch("/api/admin/settings", { headers: getAuthHeader() })
+    fetch(`${API_BASE}/api/admin/settings`, { headers: getAuthHeader() })
       .then(res => {
         if(!res.ok) throw new Error("Unauthorized")
         return res.json()
       })
       .then(data => {
         setSettings(data)
-        setMaxInflight(data.max_inflight_per_account || 2)
+        setMaxInflight(data.max_inflight_per_account || 4)
         setModelAliases(JSON.stringify(data.model_aliases || {}, null, 2))
       })
       .catch(() => toast.error("配置获取失败，请检查会话 Key"))
@@ -50,7 +51,7 @@ export default function SettingsPage() {
   }
 
   const handleSaveConcurrency = () => {
-    fetch("/api/admin/settings", {
+    fetch(`${API_BASE}/api/admin/settings`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...getAuthHeader() },
       body: JSON.stringify({ max_inflight_per_account: Number(maxInflight) })
@@ -63,7 +64,7 @@ export default function SettingsPage() {
   const handleSaveAliases = () => {
     try {
       const parsed = JSON.parse(modelAliases)
-      fetch("/api/admin/settings", {
+      fetch(`${API_BASE}/api/admin/settings`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...getAuthHeader() },
         body: JSON.stringify({ model_aliases: parsed })
@@ -76,8 +77,10 @@ export default function SettingsPage() {
     }
   }
 
-  const curlExample = `# 流式对话
-curl /v1/chat/completions \\
+  const baseUrl = API_BASE || `http://${window.location.hostname}:7860`
+
+  const curlExample = `# OpenAI 流式对话
+curl ${baseUrl}/v1/chat/completions \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -d '{
@@ -86,21 +89,55 @@ curl /v1/chat/completions \\
     "stream": true
   }'
 
-# Anthropic 格式
-curl /anthropic/v1/messages \\
+# Anthropic 格式（Claude Code / SDK）
+curl ${baseUrl}/anthropic/v1/messages \\
   -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "x-api-key: YOUR_API_KEY" \\
+  -H "anthropic-version: 2023-06-01" \\
   -d '{
-    "model": "qwen3.6-plus",
+    "model": "claude-sonnet-4-6",
+    "max_tokens": 1024,
     "messages": [{"role": "user", "content": "你好"}]
   }'
 
 # Gemini 格式
-curl /v1beta/models/qwen3.6-plus:generateContent \\
+curl ${baseUrl}/v1beta/models/qwen3.6-plus:generateContent \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -d '{
     "contents": [{"parts": [{"text": "你好"}]}]
+  }'
+
+# 图片生成（标准 OpenAI Images 接口，推荐）
+curl ${baseUrl}/v1/images/generations \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -d '{
+    "model": "dall-e-3",
+    "prompt": "一只赛博朋克风格的猫，霓虹灯背景，超写实",
+    "n": 1,
+    "size": "1024x1024",
+    "response_format": "url"
+  }'
+
+# 图片生成（Chat 意图识别自动路由，返回内容中附带图片链接）
+curl ${baseUrl}/v1/chat/completions \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -d '{
+    "model": "qwen3.6-plus",
+    "stream": false,
+    "messages": [{"role": "user", "content": "帮我生成一张星空下的雪山图片，写实风格"}]
+  }'
+
+# 视频生成（仍为预留链路，先不要作为稳定能力依赖）
+curl ${baseUrl}/v1/chat/completions \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -d '{
+    "model": "qwen3.6-plus",
+    "stream": false,
+    "messages": [{"role": "user", "content": "生成视频：海浪拍打礁石，慢动作"}]
   }'`
 
   return (
@@ -131,7 +168,7 @@ curl /v1beta/models/qwen3.6-plus:generateContent \\
                 type="password" 
                 value={sessionKey}
                 onChange={e => setSessionKey(e.target.value)}
-                placeholder="sk-qwen-... 或管理员密钥" 
+                placeholder="sk-qwen-... 或默认管理员密钥 admin" 
                 className="flex h-10 w-full flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
               />
               <Button onClick={handleSaveSessionKey}>保存</Button>
@@ -151,7 +188,7 @@ curl /v1beta/models/qwen3.6-plus:generateContent \\
           <div className="p-6">
             <div className="space-y-1">
               <label className="text-sm font-medium">API 基础地址 (Base URL)</label>
-              <input type="text" readOnly value={window.location.origin} className="flex h-10 w-full rounded-md border border-input bg-muted px-3 py-2 text-sm font-mono text-muted-foreground" />
+              <input type="text" readOnly value={baseUrl} className="flex h-10 w-full rounded-md border border-input bg-muted px-3 py-2 text-sm font-mono text-muted-foreground" />
             </div>
           </div>
         </div>

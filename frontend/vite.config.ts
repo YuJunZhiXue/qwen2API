@@ -12,9 +12,12 @@ export default defineConfig({
     },
   },
   server: {
+    port: 5174,
     proxy: {
-      '/api': 'http://localhost:8080',
-      '/v1': 'http://localhost:8080',
+      '/api':       { target: 'http://localhost:7860', changeOrigin: true, timeout: 0 },
+      '/v1':        { target: 'http://localhost:7860', changeOrigin: true, timeout: 0 },
+      '/anthropic': { target: 'http://localhost:7860', changeOrigin: true, timeout: 0 },
+      '/v1beta':    { target: 'http://localhost:7860', changeOrigin: true, timeout: 0 },
     }
   }
 })

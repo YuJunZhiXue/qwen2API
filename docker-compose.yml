@@ -1,17 +1,24 @@
-version: '3.8'
-
 services:
   qwen2api:
-    build: .
-    container_name: qwen2api-gateway
+    image: yujunzhixue/qwen2api:latest
+    container_name: qwen2api
     restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
     ports:
-      - "8080:8080"
+      - "7860:7860"
     volumes:
       - ./data:/workspace/data
       - ./logs:/workspace/logs
+    shm_size: '256m'
     environment:
-      - ADMIN_KEY=admin
-      - PORT=8080
-      - BROWSER_POOL_SIZE=3
-      - MAX_INFLIGHT=1
+      PYTHONIOENCODING: utf-8
+      PORT: "7860"
+      ENGINE_MODE: "hybrid"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7860/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 3

@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""
+qwen2API Enterprise Gateway 启动脚本
+
+前端: Vite dev server  http://localhost:5174  (热更新)
+后端: uvicorn          http://localhost:7860  (API 网关)
+"""
 import os
 import sys
 import subprocess
@@ -6,183 +12,221 @@ import time
 import signal
 from pathlib import Path
 
-# ==========================================
-# qwen2API Enterprise Gateway - Python 跨平台点火脚本
-# ==========================================
-
 WORKSPACE_DIR = Path(__file__).parent.absolute()
 BACKEND_DIR = WORKSPACE_DIR / "backend"
 FRONTEND_DIR = WORKSPACE_DIR / "frontend"
 LOGS_DIR = WORKSPACE_DIR / "logs"
+DATA_DIR = WORKSPACE_DIR / "data"
+
 
 def ensure_dirs():
     LOGS_DIR.mkdir(exist_ok=True)
-    (WORKSPACE_DIR / "data").mkdir(exist_ok=True)
+    DATA_DIR.mkdir(exist_ok=True)
 
-def check_and_install_dependencies():
-    print("⚡ [系统预检] 正在扫描底层铁壁的 Python 环境...")
-    python_exec = sys.executable
-    
-    # 注入环境变量，防止 Windows 下 pip 安装的包找不到
+
+def check_python():
+    if sys.version_info < (3, 10):
+        print("❌ 需要 Python 3.10+，当前版本:", sys.version)
+        sys.exit(1)
+
+
+def install_backend_deps():
+    print("⚡ [1/4] 安装后端依赖...")
     env = os.environ.copy()
     env["PYTHONPATH"] = str(WORKSPACE_DIR)
-    
-    # 安装后端依赖
     try:
         subprocess.check_call(
-            [python_exec, "-m", "pip", "install", "-r", "requirements.txt", "--quiet"],
+            [sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "-q"],
             cwd=BACKEND_DIR,
             env=env,
-            stdout=None, # 将 pip 安装日志直接输出，暴露错误
-            stderr=subprocess.STDOUT
         )
+        print("✓ 后端依赖已就绪")
     except Exception as e:
-        print(f"⚠ [预检警告] 后端依赖安装异常: {e}")
-        
-    print("⚡ [系统预检] 正在下载并配置浏览器内核 (Camoufox)...")
-    try:
-        # 在 Windows 上，有时候 pip 安装的全局包不能通过 python -m 直接调用（特别是多版本或权限问题）
-        # 改用更通用的 shell=True 执行，让系统自动在 Scripts 目录里找 camoufox
-        subprocess.check_call(
-            "camoufox fetch" if os.name == "nt" else [python_exec, "-m", "camoufox", "fetch"],
-            cwd=WORKSPACE_DIR,
-            shell=(os.name == "nt"),
-            env=env,
-            stdout=None, # 将输出打印到终端，暴露详细报错
-            stderr=subprocess.STDOUT
-        )
-    except Exception as e:
-        print(f"⚠ [预检警告] 浏览器内核配置异常: {e}")
+        print(f"⚠ 后端依赖安装异常: {e}")
 
-    print("⚡ [系统预检] 正在扫描前端王座的 Node 环境...")
-    is_windows = (os.name == "nt")
-    npm_install_cmd = "npm install" if is_windows else ["npm", "install"]
-    
-    # 检查前端 node_modules 是否存在，如果不存在或为了安全起见，执行 npm install
+
+def fetch_browser():
+    print("⚡ [2/4] 检查 Camoufox 浏览器内核...")
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(WORKSPACE_DIR)
     try:
-        # 为了给用户一个清晰的进度，不吞噬这里的输出
-        print("  -> 正在执行 npm install (可能需要一点时间，请耐心等待)...")
-        subprocess.check_call(
-            npm_install_cmd,
-            cwd=FRONTEND_DIR,
-            shell=is_windows,
-            stdout=None, # 将 npm install 的日志也直接输出到终端，让你能看到为什么 npm 失败
-            stderr=subprocess.STDOUT
+        result = subprocess.run(
+            [sys.executable, "-m", "camoufox", "path"],
+            capture_output=True, text=True, timeout=10, env=env,
         )
-        print("✓ [预检通过] 前端依赖已就绪。")
-    except subprocess.CalledProcessError as e:
-        print(f"❌ [预检失败] 前端构建失败: {e}")
-        sys.exit(1)
-    
+        if result.returncode == 0 and result.stdout.strip():
+            print("✓ 浏览器内核已存在，跳过下载")
+            return
+    except Exception:
+        pass
+    print("  -> 正在下载 Camoufox 内核（首次运行，请耐心等待）...")
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "camoufox", "fetch"],
+            cwd=WORKSPACE_DIR,
+            env=env,
+        )
+        print("✓ 浏览器内核下载完成")
+    except Exception as e:
+        print(f"⚠ 浏览器内核下载异常: {e}")
+
+
+def start_frontend() -> subprocess.Popen:
+    print("⚡ [3/4] 启动前端开发服务器...")
+    is_windows = os.name == "nt"
+
+    if not (FRONTEND_DIR / "node_modules").exists():
+        print("  -> 正在执行 npm install...")
+        try:
+            subprocess.check_call(
+                "npm install" if is_windows else ["npm", "install"],
+                cwd=FRONTEND_DIR,
+                shell=is_windows,
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"❌ npm install 失败: {e}")
+            sys.exit(1)
+
+    proc = subprocess.Popen(
+        "npm run dev" if is_windows else ["npm", "run", "dev"],
+        cwd=FRONTEND_DIR,
+        shell=is_windows,
+    )
+    print(f"✓ 前端已启动 (PID: {proc.pid})  →  http://127.0.0.1:5174")
+    return proc
+
+
+def kill_port(port: int):
+    """Kill any process occupying the given port."""
+    try:
+        if os.name == "nt":
+            result = subprocess.run(
+                ["netstat", "-ano", "-p", "TCP"],
+                capture_output=True, text=True, timeout=5
+            )
+            for line in result.stdout.splitlines():
+                if f":{port} " in line and "LISTENING" in line:
+                    pid = line.strip().split()[-1]
+                    if pid.isdigit():
+                        subprocess.run(["taskkill", "/F", "/PID", pid], capture_output=True)
+                        print(f"  -> 已终止占用 {port} 端口的旧进程 (PID: {pid})")
+                        time.sleep(1)
+                        return
+        else:
+            result = subprocess.run(
+                ["lsof", "-ti", f"tcp:{port}"],
+                capture_output=True, text=True, timeout=5
+            )
+            pid = result.stdout.strip()
+            if pid:
+                subprocess.run(["kill", "-9", pid], capture_output=True)
+                print(f"  -> 已终止占用 {port} 端口的旧进程 (PID: {pid})")
+                time.sleep(1)
+    except Exception:
+        pass
+
+
 def start_backend() -> subprocess.Popen:
-    print("⚡ 正在唤醒底层铁壁 (Backend)...")
-    
-    # 根据系统判断 python 执行文件
-    python_exec = sys.executable
-    
-    # 注入 PYTHONPATH，让 backend 内的绝对导入生效
+    print("⚡ [4/4] 启动后端服务...")
     env = os.environ.copy()
     env["PYTHONPATH"] = str(WORKSPACE_DIR)
     env["PYTHONIOENCODING"] = "utf-8"
-    
-    # 为了能读取输出并判断启动完毕，我们接管 stdout，并使用线程边读边打印
+    env["PYTHONUTF8"] = "1"
+
+    port = env.get("PORT", "7860")
+    kill_port(int(port))
+
     proc = subprocess.Popen(
-        [python_exec, "backend/main.py"],
+        [
+            sys.executable, "-m", "uvicorn",
+            "backend.main:app",
+            "--host", "0.0.0.0",
+            "--port", port,
+            "--workers", "1",
+        ],
         cwd=WORKSPACE_DIR,
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        bufsize=0, # 在二进制模式下，使用无缓冲 (0) 或默认缓冲 (-1)，不能使用行缓冲 (1)
+        bufsize=0,
     )
-    print(f"✓ Backend 进程已点火 (PID: {proc.pid})，正在初始化千问浏览器内核，请耐心等待...")
-    
+    print(f"✓ 后端进程已启动 (PID: {proc.pid})，正在初始化浏览器引擎...")
+
     import threading
-    
-    # 使用事件来通知主线程初始化完成
     ready_event = threading.Event()
-    
+
     def read_output():
-        for line in iter(proc.stdout.readline, b''):
+        for line in iter(proc.stdout.readline, b""):
             try:
-                decoded_line = line.decode('utf-8', errors='replace')
+                decoded = line.decode("utf-8", errors="replace")
             except Exception:
-                decoded_line = str(line)
-            print(decoded_line, end="")
-            if "Browser engine started" in decoded_line or "Application startup complete" in decoded_line:
+                decoded = str(line)
+            print(decoded, end="")
+            if "Browser engine started" in decoded or "Application startup complete" in decoded:
                 ready_event.set()
-                
-    t = threading.Thread(target=read_output, daemon=True)
-    t.start()
-    
-    # 阻塞等待，最多等 5 分钟
+
+    threading.Thread(target=read_output, daemon=True).start()
+
     started = ready_event.wait(timeout=300)
     if not started:
-        print("❌ [严重警告] 后端内核初始化超时或失败，系统可能无法正常工作！")
+        print("⚠ 后端初始化超时，服务可能未完全就绪")
     else:
-        print("✓ 底层铁壁已完全就绪。")
-        
+        print("✓ 服务已完全就绪")
+
     return proc
 
-def start_frontend() -> subprocess.Popen:
-    print("⚡ 正在唤醒前端面板 (Admin Dashboard)...")
-    log_file = open(LOGS_DIR / "frontend.log", "w", encoding="utf-8")
-    
-    is_windows = (os.name == "nt")
-    npm_cmd = "npm run dev" if is_windows else ["npm", "run", "dev"]
-    
-    proc = subprocess.Popen(
-        npm_cmd,
-        cwd=FRONTEND_DIR,
-        shell=is_windows, 
-        stdout=None, # 将输出直接抛到终端
-        stderr=None
-    )
-    print(f"✓ Frontend 已点火 (PID: {proc.pid}) -> 终端直出报错")
-    return proc
 
 def main():
     ensure_dirs()
-    check_and_install_dependencies()
-    
-    backend_proc = start_backend()
-    
-    # 因为 start_backend 已经是强阻塞（等待 ready_event），到这里说明后端必定已经 ready
-    frontend_proc = start_frontend()
-    
-    print("\n==========================================")
-    print("系统已上线。")
-    print("▶ 控制台入口: http://localhost:5173")
-    print("▶ API 接口:   http://localhost:8080")
-    print("==========================================")
-    print("按 Ctrl+C 掐断进程并关闭系统。")
-    
+    check_python()
+    install_backend_deps()
+    fetch_browser()
+    backend_proc = start_backend()   # 先等浏览器引擎完全就绪
+    frontend_proc = start_frontend() # 引擎好了再启前端
+
+    port = os.environ.get("PORT", "7860")
+    print()
+    print("=" * 50)
+    print("  qwen2API 已上线")
+    print(f"  前端 WebUI:   http://127.0.0.1:5174")
+    print(f"  后端 API:     http://127.0.0.1:{port}")
+    print("=" * 50)
+    print("  按 Ctrl+C 停止所有服务")
+    print()
+
     def signal_handler(sig, frame):
-        print("\n\n⚠ 收到关闭指令，正在掐断进程...")
-        backend_proc.terminate()
-        frontend_proc.terminate()
+        print("\n正在关闭服务...")
+        for p in (backend_proc, frontend_proc):
+            try:
+                p.terminate()
+            except Exception:
+                pass
         backend_proc.wait()
-        frontend_proc.wait()
-        print("✓ 进程已被摧毁，系统下线。")
+        print("服务已停止")
         sys.exit(0)
-        
+
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-    
-    # 保持主进程存活，同时监控状态
+
     try:
         while True:
             if backend_proc.poll() is not None:
-                print(f"❌ Backend 异常退出 (Exit Code: {backend_proc.returncode})")
+                print(f"❌ 后端进程异常退出 (Exit Code: {backend_proc.returncode})")
                 break
             if frontend_proc.poll() is not None:
-                print(f"❌ Frontend 异常退出 (Exit Code: {frontend_proc.returncode})")
+                print(f"❌ 前端进程异常退出 (Exit Code: {frontend_proc.returncode})")
                 break
             time.sleep(1)
     except KeyboardInterrupt:
         pass
     finally:
-        if backend_proc.poll() is None: backend_proc.terminate()
-        if frontend_proc.poll() is None: frontend_proc.terminate()
+        for p in (backend_proc, frontend_proc):
+            try:
+                if p.poll() is None:
+                    p.terminate()
+            except Exception:
+                pass
+
 
 if __name__ == "__main__":
     main()

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, HTTPException
 from backend.api.admin import verify_admin
 from backend.core.database import AsyncJsonDB
 
@@ -10,10 +10,15 @@ async def healthz():
 
 @router.get("/readyz")
 async def readyz(request: Request):
-    engine = getattr(request.app.state, "browser_engine", None)
-    if engine and getattr(engine, "_started", False):
+    gateway_engine = getattr(request.app.state, "gateway_engine", None)
+    browser_engine = getattr(request.app.state, "browser_engine", None)
+    if gateway_engine and getattr(gateway_engine, "_started", False):
+        if getattr(getattr(request.app.state, "gateway_engine", None), "__class__", type("", (), {})).__name__ == "HybridEngine":
+            if browser_engine and getattr(browser_engine, "_started", False):
+                return {"status": "ready"}
+            raise HTTPException(status_code=503, detail="browser engine not ready")
         return {"status": "ready"}
-    return {"status": "not_ready"}, 503
+    raise HTTPException(status_code=503, detail="gateway not ready")
 
 @router.get("/admin/dev/captures", dependencies=[Depends(verify_admin)])
 async def get_captures(request: Request):
