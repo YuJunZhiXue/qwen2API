@@ -489,6 +489,8 @@ def evaluate_retry_directive(
         return RuntimeRetryDirective(retry=False, next_prompt=current_prompt)
 
     if state.blocked_tool_names and request.tools:
+        if request.surface == "openai":
+            return RuntimeRetryDirective(retry=False, next_prompt=current_prompt)
         blocked_name = normalize_tool_name_for_retry(state.blocked_tool_names[0], request.tool_names)
         force_text = (
             f"[MANDATORY NEXT STEP]: The server blocked tool '{blocked_name}' with 'Tool {blocked_name} does not exists.'. "

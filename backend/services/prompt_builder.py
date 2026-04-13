@@ -123,10 +123,13 @@ def build_prompt_with_tools(system_prompt: str, messages: list, tools: list) -> 
         names = [t.get("name", "") for t in tools if t.get("name")]
         lines = [
             "=== TOOL USAGE INSTRUCTIONS ===",
-            "If a tool is needed, reply with exactly one tool call using valid JSON.",
-            "Preferred format:",
-            '{"name": "EXACT_TOOL_NAME", "input": {"param1": "value1"}}',
+            "When a tool is needed, output ONLY one XML-wrapped tool call and nothing else.",
+            "Required format:",
+            '<tool_call>{"name": "EXACT_TOOL_NAME", "input": {"param1": "value1"}}</tool_call>',
             "Rules:",
+            "- Output only the single <tool_call>...</tool_call> block.",
+            "- No prose before or after the block.",
+            "- No markdown fences.",
             "- Use the exact tool name from the list below.",
             "- Put arguments inside the input object.",
             "- Do not invent tool names.",
