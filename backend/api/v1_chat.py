@@ -120,7 +120,8 @@ async def chat_completions(request: Request):
                         on_delta=delta_handler,
                     )
                     execution = result.execution
-                    final_finish_reason = "tool_calls" if execution.state.tool_calls else execution.state.finish_reason
+                    directive = result.directive or build_tool_directive(standard_request, execution.state)
+                    final_finish_reason = "tool_calls" if directive.stop_reason == "tool_use" else execution.state.finish_reason
                     for chunk in translator.finalize(final_finish_reason):
                         yield chunk
                     return

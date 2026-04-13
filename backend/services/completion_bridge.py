@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 from backend.adapter.standard_request import StandardRequest
-from backend.runtime.execution import cleanup_runtime_resources, collect_completion_run, evaluate_retry_directive
+from backend.runtime.execution import build_tool_directive, cleanup_runtime_resources, collect_completion_run, evaluate_retry_directive
 from backend.services.auth_quota import add_used_tokens
 from backend.services.token_calc import calculate_usage
 
@@ -15,6 +15,7 @@ class CompletionBridgeResult:
     usage: dict[str, int]
     prompt: str
     attempt_index: int
+    directive: Any | None = None
 
 
 async def run_completion_bridge(
@@ -81,6 +82,7 @@ async def run_retryable_completion_bridge(
 
         usage = calculate_usage(current_prompt, execution.state.answer_text)
         usage_delta = usage_delta_factory(execution, current_prompt) if usage_delta_factory is not None else usage["total_tokens"]
+        directive = build_tool_directive(standard_request, execution.state)
         await add_used_tokens(users_db, token, usage_delta)
         await cleanup_runtime_resources(client, execution.acc, execution.chat_id)
         return CompletionBridgeResult(
@@ -88,6 +90,7 @@ async def run_retryable_completion_bridge(
             usage=usage,
             prompt=current_prompt,
             attempt_index=attempt_index,
+            directive=directive,
         )
 
     raise RuntimeError("Retryable completion bridge exhausted attempts")
