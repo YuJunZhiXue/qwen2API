@@ -26,6 +26,7 @@ class OpenAIStreamTranslator:
         self.role_chunk_sent = False
         self.emitted_tool_index = 0
         self.answer_fragments: list[str] = []
+        self.visible_text_fragments: list[str] = []
         self.buffered_toolish_fragments: list[str] = []
         self.tool_calls_emitted = False
 
@@ -69,7 +70,10 @@ class OpenAIStreamTranslator:
             self.answer_fragments.append(text_chunk)
             if self._looks_like_tool_output(text_chunk):
                 self.buffered_toolish_fragments.append(text_chunk)
+            elif self.buffered_toolish_fragments:
+                self.buffered_toolish_fragments.append(text_chunk)
             else:
+                self.visible_text_fragments.append(text_chunk)
                 self._emit_content_chunk(text_chunk)
             return
 
@@ -93,6 +97,8 @@ class OpenAIStreamTranslator:
         if self.build_final_directive is not None and not self.tool_calls_emitted:
             directive = self.build_final_directive("".join(self.answer_fragments))
             if directive.stop_reason == "tool_use":
+                self.pending_chunks = [chunk for chunk in self.pending_chunks if '"content"' not in chunk]
+                self.visible_text_fragments = []
                 tool_calls = [
                     {
                         "id": block["id"],
