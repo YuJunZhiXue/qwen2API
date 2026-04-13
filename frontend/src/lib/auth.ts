@@ -1,4 +1,4 @@
 export function getAuthHeader() {
-  const key = localStorage.getItem('qwen2api_key') || 'admin';
-  return { Authorization: `Bearer ${key}` };
+  const key = localStorage.getItem('qwen2api_key') || '';
+  return key ? { Authorization: `Bearer ${key}` } : {};
 }
