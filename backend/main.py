@@ -20,7 +20,7 @@ from backend.core.request_logging import configure_logging, request_context
 from backend.services.qwen_client import QwenClient
 from backend.services.file_store import LocalFileStore
 from backend.services.context_offload import ContextOffloader
-from backend.services.response_store import InMemoryResponseStore
+from backend.services.response_store import PersistentResponseStore
 from backend.services.upstream_file_uploader import UpstreamFileUploader
 import backend.api.models as models
 from backend.api import admin, v1_chat, responses_api, probes, anthropic, gemini, embeddings, images, files_api
@@ -53,13 +53,18 @@ async def lifespan(app: FastAPI):
         app.state.context_offloader = ContextOffloader(settings)
         app.state.upstream_file_uploader = UpstreamFileUploader(app.state.qwen_client, settings)
         app.state.session_locks = SessionLockRegistry()
-        app.state.response_store = InMemoryResponseStore()
+        app.state.response_store = PersistentResponseStore(
+            settings.RESPONSES_STORE_FILE,
+            ttl_seconds=settings.RESPONSES_STORE_TTL_SECONDS,
+            max_items=settings.RESPONSES_STORE_MAX_ITEMS,
+        )
 
         # 加载账号并启动后台清理任务
         await app.state.account_pool.load()
         await app.state.file_store.load()
         await app.state.session_affinity.load()
         await app.state.upstream_file_cache.load()
+        await app.state.response_store.load()
         asyncio.create_task(garbage_collect_chats(app))
         asyncio.create_task(context_cleanup_loop(app))
 

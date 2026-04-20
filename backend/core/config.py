@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     USERS_FILE: str = os.getenv("USERS_FILE", str(DATA_DIR / "users.json"))
     CAPTURES_FILE: str = os.getenv("CAPTURES_FILE", str(DATA_DIR / "captures.json"))
     CONFIG_FILE: str = os.getenv("CONFIG_FILE", str(DATA_DIR / "config.json"))
+    RESPONSES_STORE_FILE: str = os.getenv("RESPONSES_STORE_FILE", str(DATA_DIR / "responses_store.json"))
+    RESPONSES_STORE_TTL_SECONDS: int = int(os.getenv("RESPONSES_STORE_TTL_SECONDS", 86400))
+    RESPONSES_STORE_MAX_ITEMS: int = int(os.getenv("RESPONSES_STORE_MAX_ITEMS", 1000))
 
     # ????? / ????
     CONTEXT_INLINE_MAX_CHARS: int = int(os.getenv("CONTEXT_INLINE_MAX_CHARS", 4000))
