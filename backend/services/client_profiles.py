@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 CLAUDE_CODE_OPENAI_PROFILE = "claude_code_openai"
@@ -88,6 +90,31 @@ OPENAI_SDK_FINGERPRINT_HEADERS = (
     "x-stainless-package-version",
     "x-stainless-runtime",
 )
+EXPLICIT_PROFILE_HEADERS = (
+    "x-agent-profile",
+    "x-client-profile",
+    "x-codex-client-profile",
+)
+PROFILE_ALIASES = {
+    "claude_code": CLAUDE_CODE_OPENAI_PROFILE,
+    "claude_code_openai": CLAUDE_CODE_OPENAI_PROFILE,
+    "openclaw": OPENCLAW_OPENAI_PROFILE,
+    "openclaw_openai": OPENCLAW_OPENAI_PROFILE,
+    "opencode": OPENCLAW_OPENAI_PROFILE,
+    "qwen_code": QWEN_CODE_OPENAI_PROFILE,
+    "qwen_code_openai": QWEN_CODE_OPENAI_PROFILE,
+    "qwen-code": QWEN_CODE_OPENAI_PROFILE,
+}
+
+log = logging.getLogger("qwen2api.client_profiles")
+
+
+@dataclass(slots=True)
+class ClientProfileDecision:
+    profile: str
+    reason: str
+    explicit: bool = False
+    override_source: str | None = None
 
 
 def header_value(headers: Mapping[str, Any] | Any, header_name: str) -> str:
@@ -101,6 +128,11 @@ def header_value(headers: Mapping[str, Any] | Any, header_name: str) -> str:
     if value is None:
         return ""
     return str(value)
+
+
+def normalize_client_profile_name(value: str | None) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return PROFILE_ALIASES.get(normalized, normalized)
 
 
 def normalized_tool_name(value: str) -> str:
@@ -164,6 +196,31 @@ def is_qwen_code_openai_request(headers: Mapping[str, Any] | Any, req_data: dict
     if qwen_tool_matches >= 3 and (has_qwen_code_header_hint(headers) or has_openai_sdk_fingerprint(headers)):
         return True
     return has_qwen_code_header_hint(headers)
+
+
+def resolve_explicit_client_profile(headers: Mapping[str, Any] | Any, req_data: dict[str, Any] | None) -> ClientProfileDecision | None:
+    for header_name in EXPLICIT_PROFILE_HEADERS:
+        candidate = normalize_client_profile_name(header_value(headers, header_name))
+        if candidate in {CLAUDE_CODE_OPENAI_PROFILE, OPENCLAW_OPENAI_PROFILE, QWEN_CODE_OPENAI_PROFILE}:
+            return ClientProfileDecision(
+                profile=candidate,
+                reason=f"explicit_header:{header_name}",
+                explicit=True,
+                override_source=header_name,
+            )
+
+    metadata = req_data.get("metadata") if isinstance(req_data, dict) else None
+    if isinstance(metadata, dict):
+        for key in ("client_profile", "agent_profile"):
+            candidate = normalize_client_profile_name(metadata.get(key))
+            if candidate in {CLAUDE_CODE_OPENAI_PROFILE, OPENCLAW_OPENAI_PROFILE, QWEN_CODE_OPENAI_PROFILE}:
+                return ClientProfileDecision(
+                    profile=candidate,
+                    reason=f"explicit_metadata:{key}",
+                    explicit=True,
+                    override_source=key,
+                )
+    return None
 
 
 def sanitize_openclaw_user_text(text: str) -> str:
@@ -290,12 +347,44 @@ def infer_client_profile(
     return fallback_profile
 
 
-def detect_openai_client_profile(headers: Mapping[str, Any] | Any, req_data: dict[str, Any] | None) -> str:
+def detect_openai_client_profile_decision(headers: Mapping[str, Any] | Any, req_data: dict[str, Any] | None) -> ClientProfileDecision:
     if header_value(headers, "x-anthropic-billing-header"):
-        return CLAUDE_CODE_OPENAI_PROFILE
+        return ClientProfileDecision(
+            profile=CLAUDE_CODE_OPENAI_PROFILE,
+            reason="anthropic_billing_header",
+        )
+    explicit = resolve_explicit_client_profile(headers, req_data)
+    if explicit is not None:
+        return explicit
     if is_qwen_code_openai_request(headers, req_data):
-        return QWEN_CODE_OPENAI_PROFILE
-    return OPENCLAW_OPENAI_PROFILE
+        reason = "qwen_code_header_hint" if has_qwen_code_header_hint(headers) else "qwen_code_tool_signature"
+        return ClientProfileDecision(profile=QWEN_CODE_OPENAI_PROFILE, reason=reason)
+    return ClientProfileDecision(profile=OPENCLAW_OPENAI_PROFILE, reason="default_openclaw")
+
+
+def detect_openai_client_profile(headers: Mapping[str, Any] | Any, req_data: dict[str, Any] | None) -> str:
+    return detect_openai_client_profile_decision(headers, req_data).profile
+
+
+def log_client_profile_decision(
+    decision: ClientProfileDecision,
+    *,
+    headers: Mapping[str, Any] | Any,
+    req_data: dict[str, Any] | None,
+    surface: str,
+) -> None:
+    tool_names = sorted(extract_declared_tool_names(req_data))
+    log.info(
+        "[Profile] surface=%s profile=%s reason=%s explicit=%s source=%s header_hint=%s sdk_fingerprint=%s tools=%s",
+        surface,
+        decision.profile,
+        decision.reason,
+        decision.explicit,
+        decision.override_source or "-",
+        has_qwen_code_header_hint(headers),
+        has_openai_sdk_fingerprint(headers),
+        tool_names[:8],
+    )
 
 
 __all__ = [
@@ -303,6 +392,7 @@ __all__ = [
     "OPENCLAW_OPENAI_PROFILE",
     "QWEN_CODE_OPENAI_PROFILE",
     "detect_openai_client_profile",
+    "detect_openai_client_profile_decision",
     "extract_declared_tool_names",
     "extract_latest_user_text",
     "extract_system_prompt",
@@ -312,7 +402,9 @@ __all__ = [
     "header_value",
     "infer_client_profile",
     "is_qwen_code_openai_request",
+    "log_client_profile_decision",
     "looks_like_opencode_system_prompt",
+    "normalize_client_profile_name",
     "normalize_tool",
     "normalize_tools",
     "normalized_tool_name",

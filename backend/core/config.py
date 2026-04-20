@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     QWEN_CODE_CODER_MODEL: str = os.getenv("QWEN_CODE_CODER_MODEL", "qwen3-coder-plus")
     QWEN_CODE_FORCE_CODER_FOR_TOOL_CALLS: bool = os.getenv("QWEN_CODE_FORCE_CODER_FOR_TOOL_CALLS", "true").lower() in {"1", "true", "yes", "on"}
     QWEN_CODE_FORCE_CODER_FOR_CODING_TASKS: bool = os.getenv("QWEN_CODE_FORCE_CODER_FOR_CODING_TASKS", "true").lower() in {"1", "true", "yes", "on"}
+    LOOP_GUARD_REPEATED_TOOL_THRESHOLD: int = int(os.getenv("LOOP_GUARD_REPEATED_TOOL_THRESHOLD", 1))
+    LOOP_GUARD_REPEATED_READ_THRESHOLD: int = int(os.getenv("LOOP_GUARD_REPEATED_READ_THRESHOLD", 1))
+    LOOP_GUARD_EXPLORATION_THRESHOLD: int = int(os.getenv("LOOP_GUARD_EXPLORATION_THRESHOLD", 2))
 
     # 数据文件路径
     ACCOUNTS_FILE: str = os.getenv("ACCOUNTS_FILE", str(DATA_DIR / "accounts.json"))
@@ -108,6 +111,12 @@ MODEL_MAP = {
     "gemini-2.5-flash":  "qwen3.5-flash",
     # Qwen aliases
     "qwen":              "qwen3.6-plus",
+    "qwen3-max":         "qwen3-max",
+    "qwen3.6-max-preview": "qwen3.6-max-preview",
+    "qwen3.6max-preview": "qwen3.6-max-preview",
+    "qwen3.6max preview": "qwen3.6-max-preview",
+    "qwen-max-3.6":      "qwen3.6-max-preview",
+    "qwen max 3.6":      "qwen3.6-max-preview",
     "qwen-max":          "qwen3.6-plus",
     "qwen-plus":         "qwen3.6-plus",
     "qwen-turbo":        "qwen3.5-flash",
