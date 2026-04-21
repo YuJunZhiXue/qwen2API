@@ -12,6 +12,22 @@ from backend.services.context_offload import SYSTEM_CONTEXT_FILE_PREFIX, SYSTEM_
 log = logging.getLogger("qwen2api.context_attachment_manager")
 
 
+def _is_retryable_attachment_upload_error(exc: Exception) -> bool:
+    lowered = str(exc or "").lower()
+    markers = (
+        "temporary failure in name resolution",
+        "failed to resolve",
+        "nameresolutionerror",
+        "connecterror",
+        "connectionerror",
+        "max retries exceeded",
+        "newconnectionerror",
+        "timed out",
+        "timeout",
+    )
+    return any(marker in lowered for marker in markers)
+
+
 def derive_session_key(surface: str, auth_token: str, payload: dict[str, Any]) -> str:
     explicit = (payload.get("session_key") or payload.get("conversation_id") or payload.get("metadata", {}).get("conversation_id") if isinstance(payload.get("metadata"), dict) else None)
     if explicit:
@@ -62,6 +78,26 @@ async def prepare_context_attachments(*, app, payload: dict[str, Any], surface: 
     upstream_files = list(payload.get("upstream_files", []) or [])
     local_file_records: list[dict[str, Any]] = []
 
+    async def _switch_account_on_retry(current_acc, upload_exc: Exception):
+        if not _is_retryable_attachment_upload_error(upload_exc):
+            raise upload_exc
+
+        exclude = {getattr(current_acc, "email", None)}
+        account_pool.release(current_acc)
+        next_acc = await account_pool.acquire_wait(timeout=10, exclude=exclude)
+        if not next_acc:
+            raise upload_exc
+        await affinity.bind_account(session_key, surface, next_acc.email, context_offloader.settings.CONTEXT_ATTACHMENT_TTL_SECONDS)
+        log.warning(
+            "[ContextAttachment] retrying upload with alternate account session_key=%s surface=%s previous_account=%s new_account=%s error=%s",
+            session_key,
+            surface,
+            getattr(current_acc, "email", None),
+            getattr(next_acc, "email", None),
+            upload_exc,
+        )
+        return next_acc
+
     try:
         for attachment in manual_attachments:
             if getattr(attachment, "remote_ref", None):
@@ -82,7 +118,15 @@ async def prepare_context_attachments(*, app, payload: dict[str, Any], surface: 
             if cache_entry is not None:
                 remote = cache_entry.remote_file_meta
             else:
-                remote = await uploader.upload_local_file(acc, local_meta)
+                try:
+                    remote = await uploader.upload_local_file(acc, local_meta)
+                except Exception as upload_exc:
+                    acc = await _switch_account_on_retry(acc, upload_exc)
+                    cache_entry = await cache.get(session_key, acc.email, local_meta["sha256"], ext)
+                    if cache_entry is not None:
+                        remote = cache_entry.remote_file_meta
+                    else:
+                        remote = await uploader.upload_local_file(acc, local_meta)
                 await cache.set(UpstreamFileCacheEntry(
                     session_key=session_key,
                     account_email=acc.email,
@@ -106,7 +150,15 @@ async def prepare_context_attachments(*, app, payload: dict[str, Any], surface: 
                 if cache_entry is not None:
                     remote = cache_entry.remote_file_meta
                 else:
-                    remote = await uploader.upload_local_file(acc, local_meta)
+                    try:
+                        remote = await uploader.upload_local_file(acc, local_meta)
+                    except Exception as upload_exc:
+                        acc = await _switch_account_on_retry(acc, upload_exc)
+                        cache_entry = await cache.get(session_key, acc.email, local_meta["sha256"], generated.ext)
+                        if cache_entry is not None:
+                            remote = cache_entry.remote_file_meta
+                        else:
+                            remote = await uploader.upload_local_file(acc, local_meta)
                     await cache.set(UpstreamFileCacheEntry(
                         session_key=session_key,
                         account_email=acc.email,
