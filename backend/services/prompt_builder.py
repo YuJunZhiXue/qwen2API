@@ -416,7 +416,7 @@ def build_prompt_with_tools(system_prompt: str, messages: list, tools: list, *, 
     MAX_CHARS = 24000 if (tools and client_profile == QWEN_CODE_OPENAI_PROFILE) else (18000 if tools else 120000)
     sys_part = "" if tools and _is_heavy_tool_profile(client_profile) else (f"<system>\n{system_prompt[:2000]}\n</system>" if system_prompt else "")
     tools_part = _build_tool_instruction_block(tools, client_profile) if tools else ""
-    opencode_override = bool(tools and client_profile == OPENCLAW_OPENAI_PROFILE and _looks_like_opencode_system_prompt(system_prompt))
+    opencode_override = bool(tools and client_profile == OPENCLAW_OPENAI_PROFILE and looks_like_opencode_system_prompt(system_prompt))
     if opencode_override and tools_part:
         tools_part = "\n".join(
             [
@@ -439,7 +439,7 @@ def build_prompt_with_tools(system_prompt: str, messages: list, tools: list, *, 
                            "[需求回显]", "**需求回显**")
     msg_count = 0
     max_history_msgs = (
-        16 if client_profile == QWEN_CODE_OPENAI_PROFILE else (12 if client_profile == CLAUDE_CODE_OPENAI_PROFILE else 8)
+        16 if client_profile == QWEN_CODE_OPENAI_PROFILE else (12 if client_profile == CLAUDE_CODE_OPENAI_PROFILE else 32)
     ) if tools else 200
     for msg in reversed(messages):
         if msg_count >= max_history_msgs:
@@ -465,7 +465,7 @@ def build_prompt_with_tools(system_prompt: str, messages: list, tools: list, *, 
             elif tools and client_profile == CLAUDE_CODE_OPENAI_PROFILE:
                 tool_result_limit = 6000
             else:
-                tool_result_limit = 300
+                tool_result_limit = 3000
             if len(tool_content) > tool_result_limit:
                 tool_content = tool_content[:tool_result_limit] + "...[truncated]"
             line = f"[Tool Result]{(' id=' + tool_call_id) if tool_call_id else ''}\n{tool_content}\n[/Tool Result]"
@@ -473,7 +473,8 @@ def build_prompt_with_tools(system_prompt: str, messages: list, tools: list, *, 
                 break
             history_parts.insert(0, line)
             used += len(line) + 2
-            msg_count += 1
+            # tool results do not count against msg_count; they pair with assistant tool_calls
+            # and getting truncated breaks agent loops (observed: Qwen loses tool history after ~5 turns)
             continue
 
         user_text_only = _extract_user_text_only(msg.get("content", ""), client_profile=client_profile) if role == "user" else ""
