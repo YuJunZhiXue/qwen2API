@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import html as html_lib
 import json
 import logging
@@ -736,6 +737,10 @@ class AuthResolver:
     def __init__(self, pool: AccountPool):
         self.pool = pool
 
+    @staticmethod
+    def _sha256_password(password: str) -> str:
+        return hashlib.sha256((password or "").encode("utf-8")).hexdigest()
+
     async def auto_heal_account(self, acc: Account):
         """Background task to refresh token. If successful, marks account valid.
         If refresh fails or account is pending activation, tries to activate via email."""
@@ -775,27 +780,85 @@ class AuthResolver:
         if not acc.email or not acc.password:
             log.warning(f"[Refresh] 账号 {acc.email} 无密码，无法刷新")
             return False
-            
+
         log.info(f"[Refresh] 正在为 {acc.email} 刷新 token...")
+        should_fallback_browser = False
         try:
-            async with _new_browser() as browser:
-                page = await browser.new_page()
-                new_token = await _login_and_get_token(page, acc.email, acc.password, timeout_sec=20)
-                if new_token and new_token != acc.token:
-                    old_prefix = acc.token[:20] if acc.token else "空"
-                    acc.token = new_token
-                    acc.valid = True
-                    await self.pool.save()
-                    log.info(f"[Refresh] {acc.email} token 已更新 ({old_prefix}... → {new_token[:20]}...)")
-                    return True
-                elif new_token == acc.token:
-                    # Token same but might still be valid — mark valid again
-                    acc.valid = True
-                    log.info(f"[Refresh] {acc.email} token 未变化，重新标记有效")
-                    return True
+            import httpx
+
+            payload = {
+                "email": acc.email,
+                "password": self._sha256_password(acc.password),
+            }
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                              "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "application/json, text/plain, */*",
+                "Content-Type": "application/json",
+                "Referer": f"{BASE_URL}/",
+                "Origin": BASE_URL,
+            }
+
+            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as hc:
+                resp = await hc.post(f"{BASE_URL}/api/v1/auths/signin", json=payload, headers=headers)
+
+            if resp.status_code != 200:
+                log.warning(f"[Refresh] {acc.email} HTTP {resp.status_code}，登录失败")
+                should_fallback_browser = True
+            else:
+                try:
+                    data = resp.json()
+                except Exception:
+                    log.warning(f"[Refresh] {acc.email} 登录响应不是 JSON")
+                    should_fallback_browser = True
                 else:
-                    log.warning(f"[Refresh] {acc.email} 登录后未获取到token，URL={page.url}")
-                    return False
+                    new_token = str(data.get("token", "") or "").strip()
+                    if not new_token:
+                        log.warning(f"[Refresh] {acc.email} 登录响应缺少 token 字段")
+                        should_fallback_browser = True
+                    else:
+                        old_prefix = acc.token[:20] if acc.token else "空"
+                        acc.token = new_token
+                        acc.valid = True
+                        acc.activation_pending = False
+                        acc.status_code = "valid"
+                        acc.last_error = ""
+                        await self.pool.save()
+                        log.info(f"[Refresh] {acc.email} token 已更新 ({old_prefix}... → {new_token[:20]}...)")
+                        return True
+
         except Exception as e:
-            log.error(f"[Refresh] {acc.email} 刷新异常: {e}")
-            return False
+            log.warning(f"[Refresh] {acc.email} 直连登录失败，回退浏览器流程: {e}")
+            should_fallback_browser = True
+
+        if should_fallback_browser:
+            try:
+                async with _new_browser() as browser:
+                    page = await browser.new_page()
+                    new_token = await _login_and_get_token(page, acc.email, acc.password, timeout_sec=20)
+                    if new_token and new_token != acc.token:
+                        old_prefix = acc.token[:20] if acc.token else "空"
+                        acc.token = new_token
+                        acc.valid = True
+                        acc.activation_pending = False
+                        acc.status_code = "valid"
+                        acc.last_error = ""
+                        await self.pool.save()
+                        log.info(f"[Refresh] {acc.email} token 已更新 ({old_prefix}... → {new_token[:20]}...)")
+                        return True
+                    elif new_token == acc.token:
+                        acc.valid = True
+                        acc.activation_pending = False
+                        if acc.status_code in ("invalid", "auth_error", "pending_activation"):
+                            acc.status_code = "valid"
+                        acc.last_error = ""
+                        log.info(f"[Refresh] {acc.email} token 未变化，重新标记有效")
+                        return True
+                    else:
+                        log.warning(f"[Refresh] {acc.email} 登录后未获取到token，URL={page.url}")
+                        return False
+            except Exception as browser_err:
+                log.error(f"[Refresh] {acc.email} 刷新异常: {browser_err}")
+                return False
+
+        return False
