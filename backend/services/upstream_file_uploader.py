@@ -10,7 +10,7 @@ from typing import Any
 import oss2
 
 
-def _file_class_from_content_type(content_type: str) -> str:
+def _upload_filetype_from_content_type(content_type: str) -> str:
     lowered = (content_type or "").lower()
     if lowered.startswith("image/"):
         return "image"
@@ -18,7 +18,25 @@ def _file_class_from_content_type(content_type: str) -> str:
         return "audio"
     if lowered.startswith("video/"):
         return "video"
+    return "file"
+
+
+def _remote_file_class_from_content_type(content_type: str) -> str:
+    lowered = (content_type or "").lower()
+    if lowered.startswith("image/"):
+        return "vision"
+    if lowered.startswith("audio/"):
+        return "audio"
+    if lowered.startswith("video/"):
+        return "video"
     return "document"
+
+
+def _remote_ref_type_from_content_type(content_type: str) -> str:
+    lowered = (content_type or "").lower()
+    if lowered.startswith("image/"):
+        return "image"
+    return "file"
 
 
 def _normalize_sign_region(region: str) -> str:
@@ -84,7 +102,7 @@ class UpstreamFileUploader:
             {
                 "filename": filename,
                 "filesize": len(raw),
-                "filetype": _file_class_from_content_type(content_type),
+                "filetype": _upload_filetype_from_content_type(content_type),
             },
             timeout=20.0,
         )
@@ -96,6 +114,7 @@ class UpstreamFileUploader:
         file_path_remote = sts.get("file_path", "")
         bucketname = sts.get("bucketname", "")
         endpoint = sts.get("endpoint", "")
+        file_url = sts.get("file_url", "")
         region = _normalize_sign_region(sts.get("region", ""))
         access_key_id = sts.get("access_key_id", "")
         access_key_secret = sts.get("access_key_secret", "")
@@ -163,9 +182,10 @@ class UpstreamFileUploader:
 
         user_id = file_path_remote.split('/', 1)[0] if '/' in file_path_remote else ""
         now_ms = int(time.time() * 1000)
-        put_url = f"https://{upload_endpoint}/{file_path_remote.lstrip('/')}"
+        put_url = str(file_url or f"https://{upload_endpoint}/{file_path_remote.lstrip('/')}")
+        remote_type = _remote_ref_type_from_content_type(content_type)
         remote_ref = {
-            "type": "file",
+            "type": remote_type,
             "file": {
                 "created_at": now_ms,
                 "data": {},
@@ -192,8 +212,8 @@ class UpstreamFileUploader:
             "error": "",
             "itemId": str(uuid.uuid4()),
             "file_type": content_type,
-            "showType": "file",
-            "file_class": _file_class_from_content_type(content_type),
+            "showType": remote_type,
+            "file_class": _remote_file_class_from_content_type(content_type),
             "uploadTaskId": str(uuid.uuid4()),
         }
         return {
