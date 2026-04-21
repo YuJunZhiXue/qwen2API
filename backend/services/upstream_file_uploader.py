@@ -84,7 +84,7 @@ class UpstreamFileUploader:
             {
                 "filename": filename,
                 "filesize": len(raw),
-                "filetype": "file",
+                "filetype": _file_class_from_content_type(content_type),
             },
             timeout=20.0,
         )
