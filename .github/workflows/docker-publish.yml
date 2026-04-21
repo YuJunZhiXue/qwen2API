@@ -2,11 +2,20 @@ name: Docker Build and Push
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "**" ]
     tags: [ "v*.*.*" ]
+  workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  IMAGE_NAME: ${{ vars.DOCKERHUB_REPOSITORY != '' && vars.DOCKERHUB_REPOSITORY || format('{0}/qwen2api', secrets.DOCKERHUB_USERNAME) }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-push:
@@ -32,11 +41,11 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: yujunzhixue/qwen2api
+          images: ${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
-            type=sha,format=short
+            type=sha,prefix=sha-,format=short
 
       - name: Build and push
         uses: docker/build-push-action@v6

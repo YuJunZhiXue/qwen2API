@@ -6,6 +6,7 @@ from typing import Any, cast
 
 from backend.adapter.standard_request import CLAUDE_CODE_OPENAI_PROFILE, OPENCLAW_OPENAI_PROFILE
 from backend.core.request_logging import get_request_context
+from backend.toolcall.formats_json import load_json_with_repair
 from backend.toolcall.normalize import build_tool_name_registry, normalize_tool_name
 from backend.toolcall.parser import parse_tool_calls_detailed
 
@@ -471,12 +472,14 @@ def _parse_tool_calls(answer: str, tools: list, *, emit_logs: bool):
                 seq_blocks.append({"type": "text", "text": prefix})
 
             try:
-                obj = json.loads(tc_m.group(1))
+                obj = load_json_with_repair(tc_m.group(1))
+                if not isinstance(obj, dict):
+                    raise ValueError("tool call payload is not an object")
                 name = obj.get("name", "")
                 inp = obj.get("input", obj.get("args", obj.get("arguments", obj.get("parameters", {}))))
                 if isinstance(inp, str):
                     try:
-                        inp = json.loads(inp)
+                        inp = load_json_with_repair(inp)
                     except Exception:
                         inp = {"value": inp}
                 tool_block = _build_tool_use_block(name, inp)
@@ -502,12 +505,14 @@ def _parse_tool_calls(answer: str, tools: list, *, emit_logs: bool):
     xml_m = re.search(r'<tool_call>\s*(.*?)\s*</tool_call>', answer, re.DOTALL | re.IGNORECASE)
     if xml_m:
         try:
-            obj = json.loads(xml_m.group(1))
+            obj = load_json_with_repair(xml_m.group(1))
+            if not isinstance(obj, dict):
+                raise ValueError("tool call payload is not an object")
             name = obj.get("name", "")
             inp = obj.get("input", obj.get("args", obj.get("arguments", obj.get("parameters", {}))))
             if isinstance(inp, str):
                 try:
-                    inp = json.loads(inp)
+                    inp = load_json_with_repair(inp)
                 except Exception:
                     inp = {"value": inp}
             prefix = answer[:xml_m.start()].strip()
@@ -519,12 +524,14 @@ def _parse_tool_calls(answer: str, tools: list, *, emit_logs: bool):
     cb_m = re.search(r'```tool_call\s*\n(.*?)\n```', answer, re.DOTALL)
     if cb_m:
         try:
-            obj = json.loads(cb_m.group(1).strip())
+            obj = load_json_with_repair(cb_m.group(1).strip())
+            if not isinstance(obj, dict):
+                raise ValueError("tool call payload is not an object")
             name = obj.get("name", "")
             inp = obj.get("input", obj.get("args", {}))
             if isinstance(inp, str):
                 try:
-                    inp = json.loads(inp)
+                    inp = load_json_with_repair(inp)
                 except Exception:
                     inp = {"value": inp}
             prefix = answer[:cb_m.start()].strip()
@@ -556,13 +563,13 @@ def _parse_tool_calls(answer: str, tools: list, *, emit_logs: bool):
     stripped_clean = stripped.strip()
     try:
         if stripped_clean.startswith('{') and stripped_clean.endswith('}'):
-            obj = json.loads(stripped_clean)
+            obj = load_json_with_repair(stripped_clean)
             if isinstance(obj, dict) and "name" in obj:
                 name = obj.get("name", "")
                 inp = obj.get("input", obj.get("args", obj.get("arguments", obj.get("parameters", {}))))
                 if isinstance(inp, str):
                     try:
-                        inp = json.loads(inp)
+                        inp = load_json_with_repair(inp)
                     except Exception:
                         inp = {"value": inp}
                 _log_info(f"[ToolParse] ✓ 纯JSON格式: name={name!r}, input={str(inp)[:120]}")

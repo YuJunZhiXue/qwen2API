@@ -8,18 +8,49 @@ from .normalize import normalize_arguments, normalize_tool_name
 
 
 JSON_INPUT_KEYS = ("input", "arguments", "args", "parameters")
+SMART_QUOTES = str.maketrans({
+    "\u201c": '"',
+    "\u201d": '"',
+    "\u2018": "'",
+    "\u2019": "'",
+    "\u00ab": '"',
+    "\u00bb": '"',
+})
+
+__all__ = ["load_json_with_repair", "parse_json_format"]
 
 
 def _repair_loose_json(text: str) -> str:
     repaired = text.strip()
     if not repaired:
         return repaired
+    repaired = repaired.translate(SMART_QUOTES)
     repaired = repaired.replace('"name="', '"name": "')
     repaired = re.sub(r'"name=([^",}]+)"', r'"name": "\1"', repaired)
     repaired = re.sub(r'"name=([^",}]+)', r'"name": "\1"', repaired)
     repaired = re.sub(r'"name\s*=\s*"', '"name": "', repaired)
     repaired = re.sub(r'"(name|input|arguments|args|parameters)"\s*=\s*', r'"\1": ', repaired)
+    repaired = re.sub(r',\s*([}\]])', r'\1', repaired)
+
+    open_braces = repaired.count("{") - repaired.count("}")
+    if open_braces > 0:
+        repaired += "}" * open_braces
+
+    open_brackets = repaired.count("[") - repaired.count("]")
+    if open_brackets > 0:
+        repaired += "]" * open_brackets
+    
     return repaired
+
+
+def load_json_with_repair(text: str) -> object:
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        repaired = _repair_loose_json(text)
+        if repaired == text:
+            raise
+        return json.loads(repaired)
 
 
 def _extract_call(payload: object, allowed_names: set[str]) -> dict[str, Any] | None:
@@ -52,15 +83,9 @@ def parse_json_format(text: str, allowed_names: set[str]) -> list[dict[str, Any]
             stripped = stripped[:-3].strip()
 
     try:
-        payload = json.loads(stripped)
+        payload = load_json_with_repair(stripped)
     except (json.JSONDecodeError, TypeError, ValueError):
-        repaired = _repair_loose_json(stripped)
-        if repaired == stripped:
-            return []
-        try:
-            payload = json.loads(repaired)
-        except (json.JSONDecodeError, TypeError, ValueError):
-            return []
+        return []
 
     if isinstance(payload, dict) and isinstance(payload.get("tool_calls"), list):
         calls = []

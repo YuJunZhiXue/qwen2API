@@ -11,6 +11,7 @@ from backend.toolcall.parser import parse_tool_calls_detailed
 STRICT_TOOL_TEXT_PREFIXES = ("{", "[", "`", "<")
 BUFFERED_TOOL_CALLS_ONLY = "buffered_tool_calls_only"
 DIRECTIVE_DRIVEN_TOOL_CALLS = "directive_driven_tool_calls"
+TOOL_ARGUMENT_CHUNK_SIZE = 128
 
 
 class OpenAIStreamTranslator:
@@ -127,8 +128,13 @@ class OpenAIStreamTranslator:
             idx = self.emitted_tool_index
             self.emitted_tool_index += 1
             self.pending_chunks.append(
-                f"data: {json.dumps({'id': self.completion_id, 'object': 'chat.completion.chunk', 'created': self.created, 'model': self.model_name, 'choices': [{'index': 0, 'delta': {'tool_calls': [{'index': idx, 'id': tool_call['id'], 'type': 'function', 'function': {'name': tool_call['name'], 'arguments': json.dumps(tool_call['input'], ensure_ascii=False)}}]}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n"
+                f"data: {json.dumps({'id': self.completion_id, 'object': 'chat.completion.chunk', 'created': self.created, 'model': self.model_name, 'choices': [{'index': 0, 'delta': {'tool_calls': [{'index': idx, 'id': tool_call['id'], 'type': 'function', 'function': {'name': tool_call['name'], 'arguments': ''}}]}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n"
             )
+            arguments = json.dumps(tool_call['input'], ensure_ascii=False)
+            for start in range(0, len(arguments), TOOL_ARGUMENT_CHUNK_SIZE):
+                self.pending_chunks.append(
+                    f"data: {json.dumps({'id': self.completion_id, 'object': 'chat.completion.chunk', 'created': self.created, 'model': self.model_name, 'choices': [{'index': 0, 'delta': {'tool_calls': [{'index': idx, 'function': {'arguments': arguments[start:start + TOOL_ARGUMENT_CHUNK_SIZE]}}]}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n"
+                )
         if tool_calls:
             self.tool_calls_emitted = True
 

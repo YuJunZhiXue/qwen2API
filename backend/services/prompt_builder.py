@@ -3,6 +3,7 @@ import logging
 import re
 from dataclasses import dataclass
 
+from backend.adapter.standard_request import normalize_tool_choice
 from backend.services.client_profiles import (
     CLAUDE_CODE_OPENAI_PROFILE,
     OPENCLAW_OPENAI_PROFILE,
@@ -49,8 +50,31 @@ def _render_history_tool_call(name: str, input_data: dict, client_profile: str) 
     return f"##TOOL_CALL##\n{payload}\n##END_CALL##"
 
 
-def _build_tool_instruction_block(tools: list[dict], client_profile: str) -> str:
+def _build_tool_instruction_block(
+    tools: list[dict],
+    client_profile: str,
+    *,
+    tool_choice_mode: str = "auto",
+    required_tool_name: str | None = None,
+) -> str:
     names = [t.get("name", "") for t in tools if t.get("name")]
+    force_constraint_lines: list[str] = []
+    if tool_choice_mode == "required":
+        if required_tool_name:
+            force_constraint_lines.extend([
+                f'【强制】本轮必须调用工具 `{required_tool_name}`，不能仅回复普通文本，也不能改用其它工具。',
+                f'MANDATORY: this turn MUST call the exact tool "{required_tool_name}". Plain text only is not allowed, and using a different tool is not allowed.',
+            ])
+        else:
+            force_constraint_lines.extend([
+                "【强制】本轮必须至少调用一个工具，不能只输出普通文本。",
+                "MANDATORY: this turn MUST include at least one tool call. Plain text only is not allowed.",
+            ])
+    elif tool_choice_mode == "none":
+        force_constraint_lines.extend([
+            "【强制】本轮不要调用任何工具，直接给出普通文本回复。",
+            "MANDATORY: do NOT call any tool on this turn. Respond with plain text only.",
+        ])
     if client_profile == QWEN_CODE_OPENAI_PROFILE:
         lines = [
             "=== QWEN CODE TOOL CONTRACT ===",
@@ -91,6 +115,8 @@ def _build_tool_instruction_block(tools: list[dict], client_profile: str) -> str
             "- <｜Tool｜> or <｜tool｜> markers  <-- NEVER USE",
             "ONLY ##TOOL_CALL##...##END_CALL## is accepted. Any other format will cause 'Tool X does not exists.' error.",
             "",
+            *force_constraint_lines,
+            *( [""] if force_constraint_lines else [] ),
             "Available tools (copy name and input keys exactly):",
         ]
         if len(names) <= 16:
@@ -165,6 +191,8 @@ def _build_tool_instruction_block(tools: list[dict], client_profile: str) -> str
             "- <｜Tool｜> or <｜tool｜> markers  <-- NEVER USE",
             "ONLY ##TOOL_CALL##...##END_CALL## is accepted. Any other format will cause 'Tool X does not exists.' error.",
             "",
+            *force_constraint_lines,
+            *( [""] if force_constraint_lines else [] ),
             "Available tools:",
         ]
         if len(names) <= 12:
@@ -227,6 +255,8 @@ def _build_tool_instruction_block(tools: list[dict], client_profile: str) -> str
         '- <｜System｜>, <｜User｜>, <｜Assistant｜>  <-- NEVER USE (role markers)',
         "ONLY ##TOOL_CALL##...##END_CALL## is accepted. Any other format will cause 'Tool X does not exists.' error.",
         "",
+        *force_constraint_lines,
+        *( [""] if force_constraint_lines else [] ),
         "Available tools (use these EXACT names):",
     ]
     if len(names) <= 12:
@@ -412,11 +442,26 @@ def _is_heavy_tool_profile(client_profile: str) -> bool:
     return client_profile in {CLAUDE_CODE_OPENAI_PROFILE, QWEN_CODE_OPENAI_PROFILE}
 
 
-def build_prompt_with_tools(system_prompt: str, messages: list, tools: list, *, client_profile: str = OPENCLAW_OPENAI_PROFILE) -> str:
+def build_prompt_with_tools(
+    system_prompt: str,
+    messages: list,
+    tools: list,
+    *,
+    client_profile: str = OPENCLAW_OPENAI_PROFILE,
+    tool_choice_mode: str = "auto",
+    required_tool_name: str | None = None,
+) -> str:
     MAX_CHARS = 24000 if (tools and client_profile == QWEN_CODE_OPENAI_PROFILE) else (18000 if tools else 120000)
     sys_part = "" if tools and _is_heavy_tool_profile(client_profile) else (f"<system>\n{system_prompt[:2000]}\n</system>" if system_prompt else "")
-    tools_part = _build_tool_instruction_block(tools, client_profile) if tools else ""
-    opencode_override = bool(tools and client_profile == OPENCLAW_OPENAI_PROFILE and _looks_like_opencode_system_prompt(system_prompt))
+    tools_part = ""
+    if tools:
+        tools_part = _build_tool_instruction_block(
+            tools,
+            client_profile,
+            tool_choice_mode=tool_choice_mode,
+            required_tool_name=required_tool_name,
+        )
+    opencode_override = bool(tools and client_profile == OPENCLAW_OPENAI_PROFILE and looks_like_opencode_system_prompt(system_prompt))
     if opencode_override and tools_part:
         tools_part = "\n".join(
             [
@@ -619,6 +664,7 @@ def messages_to_prompt(req_data: dict, *, client_profile: str = OPENCLAW_OPENAI_
     messages = req_data.get("messages", [])
     tools = _normalize_tools(req_data.get("tools", []))
     tool_enabled = bool(tools)
+    tool_choice = normalize_tool_choice(req_data.get("tool_choice"))
     system_prompt = ""
     sys_field = req_data.get("system", "")
     if isinstance(sys_field, list):
@@ -631,7 +677,14 @@ def messages_to_prompt(req_data: dict, *, client_profile: str = OPENCLAW_OPENAI_
                 system_prompt = _extract_text(msg.get("content", ""), client_profile=resolved_client_profile)
                 break
     return PromptBuildResult(
-        prompt=build_prompt_with_tools(system_prompt, messages, tools, client_profile=resolved_client_profile),
+        prompt=build_prompt_with_tools(
+            system_prompt,
+            messages,
+            tools,
+            client_profile=resolved_client_profile,
+            tool_choice_mode=tool_choice.mode,
+            required_tool_name=tool_choice.required_tool_name,
+        ),
         tools=tools,
         tool_enabled=tool_enabled,
         client_profile=resolved_client_profile,

@@ -11,6 +11,7 @@ from backend.adapter.standard_request import StandardRequest
 from backend.runtime.execution import build_tool_directive
 
 log = logging.getLogger("qwen2api.responses")
+TOOL_ARGUMENT_CHUNK_SIZE = 128
 
 
 @dataclass(slots=True)
@@ -351,6 +352,7 @@ class ResponsesStreamTranslator:
 
             tool_items = [item for item in response_payload["output"] if item.get("type") == "function_call"]
             for tool_item in tool_items:
+                arguments = str(tool_item.get("arguments", "") or "")
                 chunks.append(
                     sse_event(
                         {
@@ -368,10 +370,22 @@ class ResponsesStreamTranslator:
                             "sequence_number": self._next_sequence(),
                             "item_id": tool_item["id"],
                             "output_index": output_index,
-                            "delta": tool_item.get("arguments", ""),
+                            "delta": "",
                         }
                     )
                 )
+                for start in range(0, len(arguments), TOOL_ARGUMENT_CHUNK_SIZE):
+                    chunks.append(
+                        sse_event(
+                            {
+                                "type": "response.function_call_arguments.delta",
+                                "sequence_number": self._next_sequence(),
+                                "item_id": tool_item["id"],
+                                "output_index": output_index,
+                                "delta": arguments[start:start + TOOL_ARGUMENT_CHUNK_SIZE],
+                            }
+                        )
+                    )
                 chunks.append(
                     sse_event(
                         {
@@ -379,7 +393,7 @@ class ResponsesStreamTranslator:
                             "sequence_number": self._next_sequence(),
                             "item_id": tool_item["id"],
                             "output_index": output_index,
-                            "arguments": tool_item.get("arguments", ""),
+                            "arguments": arguments,
                         }
                     )
                 )
@@ -495,6 +509,7 @@ async def prepare_responses_request(*, response_store, req_data: dict[str, Any])
             "model": req_data.get("model", "gpt-4.1"),
             "stream": bool(req_data.get("stream", False)),
             "tools": req_data.get("tools", []),
+            "tool_choice": req_data.get("tool_choice"),
             "messages": combined_messages,
         },
         current_messages=current_messages,

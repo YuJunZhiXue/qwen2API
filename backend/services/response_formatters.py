@@ -129,6 +129,16 @@ def build_openai_response_payload(
         "output_tokens_details": {"reasoning_tokens": len(execution.state.reasoning_text or "")},
     }
 
+    if standard_request.required_tool_name:
+        tool_choice_payload: Any = {
+            "type": "function",
+            "function": {"name": standard_request.required_tool_name},
+        }
+    elif standard_request.tool_choice_raw is not None:
+        tool_choice_payload = standard_request.tool_choice_raw
+    else:
+        tool_choice_payload = standard_request.tool_choice_mode or "auto"
+
     return {
         "id": response_id,
         "object": "response",
@@ -147,7 +157,7 @@ def build_openai_response_payload(
         "store": store,
         "temperature": 1.0,
         "text": {"format": {"type": "text"}},
-        "tool_choice": "auto",
+        "tool_choice": tool_choice_payload,
         "tools": standard_request.tools or [],
         "top_p": 1.0,
         "truncation": "disabled",

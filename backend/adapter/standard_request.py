@@ -14,6 +14,46 @@ from backend.services.client_profiles import (
 
 
 @dataclass(slots=True)
+class ToolChoiceSpec:
+    mode: str = "auto"
+    required_tool_name: str | None = None
+    raw: Any | None = None
+
+
+def normalize_tool_choice(tool_choice: Any) -> ToolChoiceSpec:
+    if tool_choice is None:
+        return ToolChoiceSpec(mode="auto", raw=None)
+
+    if isinstance(tool_choice, str):
+        lowered = tool_choice.strip().lower()
+        if lowered in {"required", "any"}:
+            return ToolChoiceSpec(mode="required", raw=tool_choice)
+        if lowered == "none":
+            return ToolChoiceSpec(mode="none", raw=tool_choice)
+        return ToolChoiceSpec(mode="auto", raw=tool_choice)
+
+    if not isinstance(tool_choice, dict):
+        return ToolChoiceSpec(mode="auto", raw=tool_choice)
+
+    choice_type = str(tool_choice.get("type") or "").strip().lower()
+    if choice_type in {"required", "any"}:
+        return ToolChoiceSpec(mode="required", raw=tool_choice)
+    if choice_type == "none":
+        return ToolChoiceSpec(mode="none", raw=tool_choice)
+    if choice_type in {"function", "tool"}:
+        raw_function_payload = tool_choice.get("function")
+        function_payload: dict[str, Any] = raw_function_payload if isinstance(raw_function_payload, dict) else {}
+        required_tool_name = str(
+            function_payload.get("name")
+            or tool_choice.get("name")
+            or ""
+        ).strip() or None
+        if required_tool_name:
+            return ToolChoiceSpec(mode="required", required_tool_name=required_tool_name, raw=tool_choice)
+    return ToolChoiceSpec(mode="auto", raw=tool_choice)
+
+
+@dataclass(slots=True)
 class StandardRequest:
     prompt: str
     response_model: str
@@ -27,6 +67,9 @@ class StandardRequest:
     tool_names: list[str] = field(default_factory=list)
     tool_name_registry: dict[str, str] = field(default_factory=dict)
     tool_enabled: bool = False
+    tool_choice_mode: str = "auto"
+    required_tool_name: str | None = None
+    tool_choice_raw: Any | None = None
     attachments: list[NormalizedAttachment] = field(default_factory=list)
     uploaded_file_ids: list[str] = field(default_factory=list)
     upstream_files: list[dict[str, Any]] = field(default_factory=list)

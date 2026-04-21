@@ -739,7 +739,11 @@ def build_usage_delta_factory(prompt: str) -> Callable[[RuntimeExecutionResult, 
 
 
 def request_max_attempts(request: StandardRequest) -> int:
-    return 2 if request.tools else settings.MAX_RETRIES
+    if not request.tools:
+        return settings.MAX_RETRIES
+    if getattr(request, "tool_choice_mode", "auto") == "required":
+        return 3
+    return 2
 
 
 def plan_runtime_attempts(request: StandardRequest, *, initial_prompt: str) -> RuntimeAttemptPlan:
@@ -823,11 +827,46 @@ def evaluate_retry_directive(
                     )
         if directive is None:
             directive = parse_tool_directive_once(request, state)
+
+        if request.tool_choice_mode == "none" and directive.stop_reason == "tool_use" and can_retry_after_output:
+            force_text = (
+                "[强制要求]: 本轮禁止调用工具。不要输出任何工具调用，直接给出普通文本回复。"
+                "\n[MANDATORY]: Tool calls are forbidden on this turn. Do not emit any tool call. Respond with plain text only."
+            )
+            return _retry(
+                "tool_choice_none_blocked_tool_call",
+                inject_assistant_message(current_prompt, force_text),
+            )
+
+        if request.tool_choice_mode == "required" and directive.stop_reason != "tool_use" and can_retry_after_output:
+            required_tool_hint = f" `{request.required_tool_name}`" if request.required_tool_name else ""
+            force_text = (
+                f"[强制要求]: 本轮必须调用工具{required_tool_hint}，不能只给普通文本答案。"
+                "请直接输出合法的工具调用。"
+                f"\n[MANDATORY]: This turn must include a tool call{required_tool_hint}. "
+                "Do not answer with plain text only. Output a valid tool call now."
+            )
+            return _retry(
+                "required_tool_choice_missing_tool_call",
+                inject_assistant_message(current_prompt, force_text),
+            )
+
         if directive.stop_reason == "tool_use":
             first_tool = next((b for b in directive.tool_blocks if b.get("type") == "tool_use"), None)
             if first_tool:
                 first_tool_name = first_tool.get("name", "")
                 first_tool_input = first_tool.get("input", {})
+                if request.required_tool_name and str(first_tool_name) != str(request.required_tool_name) and can_retry_after_output:
+                    force_text = (
+                        f"[强制要求]: 你调用了错误的工具 `{first_tool_name}`。本轮必须调用 `{request.required_tool_name}`。"
+                        "不要解释，直接改为正确工具调用。"
+                        f"\n[MANDATORY]: You called the wrong tool `{first_tool_name}`. "
+                        f"This turn must call `{request.required_tool_name}` instead. Do not explain—emit the correct tool call now."
+                    )
+                    return _retry(
+                        f"required_tool_choice_wrong_tool:{first_tool_name}",
+                        inject_assistant_message(current_prompt, force_text),
+                    )
                 repeated_count = recent_same_tool_identity_count(
                     history_messages,
                     first_tool_name,
