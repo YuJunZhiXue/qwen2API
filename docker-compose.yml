@@ -1,6 +1,6 @@
 services:
   qwen2api:
-    image: yujunzhixue/qwen2api:latest
+    image: softs2005/qwen2api:latest
     container_name: qwen2api
     restart: unless-stopped
     env_file:
@@ -11,6 +11,9 @@ services:
     volumes:
       - ./data:/workspace/data
       - ./logs:/workspace/logs
+    dns:
+      - ${DOCKER_DNS_1:-223.5.5.5}
+      - ${DOCKER_DNS_2:-119.29.29.29}
     shm_size: "256m"
     environment:
       PYTHONIOENCODING: utf-8
