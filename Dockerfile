@@ -61,6 +61,7 @@ RUN pip install -r /tmp/requirements.txt
 RUN python -m camoufox fetch
 
 COPY backend/ ./backend/
+
 COPY start.py ./
 COPY --from=frontend-builder /app/dist ./frontend/dist
 RUN mkdir -p /workspace/data /workspace/logs /workspace/frontend
