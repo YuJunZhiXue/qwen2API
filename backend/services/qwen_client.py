@@ -24,7 +24,7 @@ class QwenClient:
         limits = httpx.Limits(
             max_connections=100,
             max_keepalive_connections=20,
-            keepalive_expiry=30.0,
+            keepalive_expiry=120.0,
         )
         # 增加 read timeout 以支持长任务（工具调用可能需要更长时间）
         timeout = httpx.Timeout(connect=30.0, read=300.0, write=30.0, pool=30.0)

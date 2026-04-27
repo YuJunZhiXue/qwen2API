@@ -61,7 +61,36 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(garbage_collect_chats(app))
         asyncio.create_task(context_cleanup_loop(app))
 
+        # 启动暖机：验证至少一个账户可用，预热 HTTP 连接
+        # 必须在 chat_id 预热之前执行，否则 chat_id_pool 预热的账号可能 token 已过期
+        try:
+            import asyncio as _asyncio
+            async with _asyncio.timeout(15.0):
+                accounts = app.state.account_pool.accounts
+                verified = 0
+                for acc in accounts:
+                    if not acc.valid or not acc.token:
+                        continue
+                    ok = await app.state.qwen_client.verify_token(acc.token)
+                    if not ok:
+                        acc.valid = False
+                        acc.status_code = "auth_error"
+                        log.warning(f"[startup] warmup: token invalid for {acc.email}")
+                    else:
+                        verified += 1
+                        log.info(f"[startup] warmup: token valid for {acc.email}")
+                    # 找到一个有效的就停止（不浪费时间）
+                    if verified >= 1:
+                        break
+                if verified == 0 and accounts:
+                    log.warning("[startup] warmup: no valid account found!")
+                elif verified == 0:
+                    log.info("[startup] warmup: no accounts configured")
+        except Exception as e:
+            log.warning(f"[startup] warmup skipped: {e}")
+
         # 启动 chat_id 预热池（省上游 /chats/new 握手 500ms~6s）
+        # 必须在 token 验证之后，否则预热可能用到过期的 token
         from backend.services.chat_id_pool import ChatIdPool
         app.state.chat_id_pool = ChatIdPool(app.state.qwen_client, target_per_account=5, ttl_seconds=600, default_model="qwen3.6-plus")
         app.state.qwen_executor.chat_id_pool = app.state.chat_id_pool  # 让 executor 直接访问

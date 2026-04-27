@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     BROWSER_STREAM_TIMEOUT_SECONDS: int = int(os.getenv("BROWSER_STREAM_TIMEOUT_SECONDS", 1800))
 
     # 容灾与限流
-    MAX_RETRIES: int = 3
+    MAX_RETRIES: int = 5
     RATE_LIMIT_COOLDOWN: int = 600
     ACCOUNT_MIN_INTERVAL_MS: int = int(os.getenv("ACCOUNT_MIN_INTERVAL_MS", 0))
     REQUEST_JITTER_MIN_MS: int = int(os.getenv("REQUEST_JITTER_MIN_MS", 0))

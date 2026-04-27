@@ -68,8 +68,13 @@ class ChatIdPool:
         log.info(f"[ChatIdPool] config updated target={self._target} ttl={self._ttl}s")
 
     async def start(self) -> None:
-        """服务启动时调用，完成首轮预热 + 启动后台补位 loop。"""
-        # 初次预热 & 启动补位 loop
+        """服务启动时调用，完成首轮预热（全量）+ 启动后台补位 loop。"""
+        # 立即全量预热，不等 delay
+        try:
+            await self._refill_once(fill_per_account=self._target)
+        except Exception as e:
+            log.warning(f"[ChatIdPool] initial prewarm failed: {e}")
+        # 启动后台补位 loop
         self._refill_task = asyncio.create_task(self._refill_loop())
         log.info(f"[ChatIdPool] started (target={self._target}, ttl={self._ttl}s)")
 
@@ -101,14 +106,18 @@ class ChatIdPool:
             return None
 
     async def _prewarm_one(self, account, model: str) -> None:
-        """为某账号预建一个 chat_id 加入队列。"""
+        """为某账号预建一个 chat_id 加入队列。
+        注意：必须直接调用 HTTP 创建，不走 executor.create_chat()，
+        因为 executor.create_chat() 内部会先 chat_id_pool.acquire()，
+        导致刚创建的 chat_id 被自己偷回，pool 永远填不满。"""
         try:
             token = account.token
             email = account.email
             if not token:
                 log.warning(f"[ChatIdPool] prewarm skipped email={email}: missing token")
                 return
-            chat_id = await self._client.executor.create_chat(token, model)
+            # 直接用 HTTP 创建 chat，不走 pool acquire
+            chat_id = await self._create_chat_direct(token, model)
             async with self._lock:
                 q = self._queues.setdefault(email, deque())
                 q.append(_Entry(chat_id))
@@ -118,34 +127,58 @@ class ChatIdPool:
             err = str(e) or type(e).__name__
             log.warning(f"[ChatIdPool] prewarm failed email={getattr(account, 'email', '?')}: {err}")
 
+    async def _create_chat_direct(self, token: str, model: str) -> str:
+        """直接通过 HTTP 创建 chat，不调用 executor.create_chat() 避免 pool acquire 循环。"""
+        import json as _json
+        import time as _time
+        engine = self._client
+        request_fn = getattr(engine, "_request_json", None)
+        if request_fn is None:
+            raise Exception("request transport unavailable")
+        ts = int(_time.time())
+        body = {
+            "title": f"api_{ts}",
+            "models": [model],
+            "chat_mode": "normal",
+            "chat_type": "t2t",
+            "timestamp": ts,
+        }
+        r = await request_fn("POST", "/api/v2/chats/new", token, body, timeout=30.0)
+        if r["status"] != 200:
+            raise Exception(f"create_chat HTTP {r['status']}: {r.get('body', '')[:100]}")
+        data = _json.loads(r.get("body", "{}"))
+        if not data.get("success") or "id" not in data.get("data", {}):
+            raise Exception("Qwen API returned error or missing id")
+        return data["data"]["id"]
+
     async def _refill_loop(self) -> None:
         """定期轮询：每账号池低于 target 则补位。30 秒一轮。"""
         interval = 30.0
-        # 初始化立即跑一轮
-        await asyncio.sleep(1.0)
         while not self._shutdown:
             try:
-                await self._refill_once()
+                await self._refill_once(fill_per_account=1)
             except Exception as e:
                 log.warning(f"[ChatIdPool] refill error: {e}")
             await asyncio.sleep(interval)
 
-    async def _refill_once(self) -> None:
+    async def _refill_once(self, fill_per_account: int = 1) -> None:
         """遍历账号池里所有 valid 账号，每个不足 target 就补位。"""
         pool = getattr(self._client, "account_pool", None)
         if pool is None:
             return
         all_accounts = getattr(pool, "accounts", []) or []
 
-        # 只对有 token + 状态 valid 的账号预热
-        valid = [a for a in all_accounts if getattr(a, "token", "") and getattr(a, "status_code", "valid") == "valid"]
+        # 只对有 token 的账号预热（用 is_available() 判断而非 status_code 字符串，
+        # 因为 Account.__init__ 设置 status_code="" 空字符串，!= "valid"）
+        valid = [a for a in all_accounts if getattr(a, "token", "") and a.is_available()]
 
         for acc in valid:
             async with self._lock:
                 q_size = len(self._queues.get(acc.email, []))
             deficit = self._target - q_size
-            # 每轮每账号最多补 1 个，避免突发 API 压力
-            if deficit > 0:
+            # fill_per_account 控制单轮最多补多少个
+            to_fill = max(0, min(deficit, fill_per_account))
+            for _ in range(to_fill):
                 await self._prewarm_one(acc, self._default_model)
 
     async def invalidate(self, email: str, chat_id: str) -> None:

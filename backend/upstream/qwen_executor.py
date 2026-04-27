@@ -30,6 +30,10 @@ class QwenExecutor:
                     cached = await self.chat_id_pool.acquire(acc.email, model)
                     if cached:
                         log.info(f"[上游] 预热池命中 邮箱={acc.email} 会话={cached}")
+                        # 新创建的 chat_id 可能需要短暂时间才能完成上游 session 初始化，
+                        # 不加延迟会导致上游返回空 SSE 流（仅结构事件，~185 bytes 無內容）。
+                        # 300ms 远小于池化省下的 500ms-6s，net 仍然大幅收益。
+                        await asyncio.sleep(0.3)
                         return cached
             except Exception as e:
                 log.debug(f"[Executor] chat_id_pool lookup failed: {e}")
