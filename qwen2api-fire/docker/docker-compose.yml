@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  node-service:
+    build:
+      context: ./service-node
+      dockerfile: ../docker/node.Dockerfile
+    container_name: qwen2api-node
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - NODE_API_KEY=${NODE_API_KEY:-change-me-in-production}
+      - BROWSER_POOL_SIZE=2
+      - MAX_INFLIGHT_PER_BROWSER=1
+      - BROWSER_TIMEOUT_MS=300000
+      - QWEN_BASE_URL=https://chat.qwen.ai
+      - DEFAULT_MODEL=qwen3.6-plus
+      - LOG_LEVEL=info
+    volumes:
+      - node-data:/var/lib/qwen-node
+      - /dev/shm:/dev/shm
+    networks:
+      - qwen-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  node-data:
+    driver: local
+
+networks:
+  qwen-network:
+    driver: bridge
