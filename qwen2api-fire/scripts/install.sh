@@ -1,279 +1,300 @@
 #!/bin/bash
 
-# Qwen2API Fire - Script de Instalação Automática
-# Este script configura tanto o backend PHP quanto o serviço Node.js
+# =============================================================================
+# Qwen2API Fire - Instalador Automático Inteligente
+# =============================================================================
+# Este script configura todo o ambiente PHP + Node.js
+# O serviço Node fica INATIVO até você remover o arquivo setup.lock
+# =============================================================================
 
 set -e
 
-echo "🔥 Qwen2API Fire - Instalação Automática"
-echo "========================================"
+echo "🔥 =========================================="
+echo "🔥  Qwen2API Fire - Instalador Automático"
+echo "🔥 =========================================="
+echo ""
 
 # Cores
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Função para log
-log_info() {
-    echo -e "${GREEN}[INFO]${NC} $1"
+# Função para imprimir mensagens
+print_step() {
+    echo -e "${BLUE}➜ $1${NC}"
 }
 
-log_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
+print_success() {
+    echo -e "${GREEN}✓ $1${NC}"
 }
 
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+print_warning() {
+    echo -e "${YELLOW}⚠ $1${NC}"
 }
 
-# Verifica se está na pasta correta
-if [ ! -f "backend-php/composer.json" ] || [ ! -f "service-node/package.json" ]; then
-    log_error "Execute este script a partir da raiz do projeto qwen2api-fire"
+print_error() {
+    echo -e "${RED}✗ $1${NC}"
+}
+
+# Verificar se está na pasta correta
+if [ ! -d "backend-php" ] || [ ! -d "service-node" ]; then
+    print_error "Erro: Execute este script na raiz do projeto qwen2api-fire"
     exit 1
 fi
 
-# Cria arquivo .env se não existir
-if [ ! -f ".env" ]; then
-    log_info "Criando arquivo .env..."
-    cat > .env << 'EOF'
-# ===========================================
-# Qwen2API Fire - Configurações
-# ===========================================
+# =============================================================================
+# 1. Configuração do Banco de Dados MySQL (INTERATIVO)
+# =============================================================================
+print_step "Configuração do Banco de Dados MySQL"
+echo ""
 
-# --- Backend PHP ---
-PHP_DB_HOST=localhost
-PHP_DB_NAME=qwen2api_fire
-PHP_DB_USER=qwen_user
-PHP_DB_PASS=change_this_password_123
+read -p "Host do MySQL (padrão: localhost): " DB_HOST
+DB_HOST=${DB_HOST:-localhost}
 
-# --- Serviço Node.js ---
-NODE_SERVICE_URL=http://localhost:3001
-NODE_SERVICE_KEY=internal_secure_key_change_me
+read -p "Porta do MySQL (padrão: 3306): " DB_PORT
+DB_PORT=${DB_PORT:-3306}
 
-# --- Configurações Gerais ---
-APP_ENV=production
-APP_DEBUG=false
-LOG_LEVEL=info
+read -p "Usuário root do MySQL: " DB_ROOT_USER
+read -sp "Senha do root do MySQL: " DB_ROOT_PASS
+echo ""
 
-# --- Rate Limiting ---
-RATE_LIMIT_MAX=60
-RATE_LIMIT_WINDOW=60
+read -p "Nome do banco de dados (padrão: qwen2api_fire): " DB_NAME
+DB_NAME=${DB_NAME:-qwen2api_fire}
 
-# --- Fila ---
-QUEUE_MAX_CONCURRENT=5
-QUEUE_MAX_SIZE=100
+read -p "Usuário do banco de dados (padrão: qwen_user): " DB_USER
+DB_USER=${DB_USER:-qwen_user}
 
-# --- Browser Pool (Node) ---
-BROWSER_POOL_SIZE=2
-MAX_INFLIGHT=1
-ACCOUNT_MIN_INTERVAL_MS=1200
+read -sp "Senha do usuário do banco: " DB_PASS
+echo ""
 
-# --- Contas Qwen (Adicione suas contas aqui) ---
-QWEN_ACCOUNTS=[]
-EOF
-    log_info ".env criado. Edite com suas credenciais!"
-else
-    log_warn ".env já existe. Pulando criação."
-fi
+# Criar script SQL temporário
+TEMP_SQL=$(mktemp)
 
-# ============================================
-# Backend PHP
-# ============================================
-log_info "Configurando Backend PHP..."
+cat > $TEMP_SQL << EOF
+-- Criar banco de dados
+CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-if command -v composer &> /dev/null; then
-    cd backend-php
-    log_info "Instalando dependências PHP..."
-    composer install --no-interaction --optimize-autoloader
-    cd ..
-    log_info "Backend PHP configurado!"
-else
-    log_error "Composer não encontrado. Instale composer primeiro."
-    exit 1
-fi
+-- Criar usuário e conceder permissões
+CREATE USER IF NOT EXISTS '${DB_USER}'@'${DB_HOST}' IDENTIFIED BY '${DB_PASS}';
+GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'${DB_HOST}';
+FLUSH PRIVILEGES;
 
-# ============================================
-# Serviço Node.js
-# ============================================
-log_info "Configurando Serviço Node.js..."
+-- Usar o banco
+USE \`${DB_NAME}\`;
 
-if command -v node &> /dev/null && command -v npm &> /dev/null; then
-    cd service-node
-    log_info "Instalando dependências Node.js..."
-    npm install --production
-    cd ..
-    log_info "Serviço Node.js configurado!"
-else
-    log_error "Node.js ou npm não encontrados. Instale Node.js 18+ primeiro."
-    exit 1
-fi
-
-# ============================================
-# Banco de Dados
-# ============================================
-log_info "Configurando Banco de Dados..."
-
-DB_HOST=${PHP_DB_HOST:-localhost}
-DB_NAME=${PHP_DB_NAME:-qwen2api_fire}
-DB_USER=${PHP_DB_USER:-qwen_user}
-DB_PASS=${PHP_DB_PASS:-change_this_password_123}
-
-# Cria script SQL
-cat > /tmp/qwen2api_schema.sql << 'EOF'
-CREATE DATABASE IF NOT EXISTS qwen2api_fire CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
-USE qwen2api_fire;
+-- Tabela de usuários/administradores
+CREATE TABLE IF NOT EXISTS users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    role ENUM('admin', 'user') DEFAULT 'user',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
 
 -- Tabela de API Keys
 CREATE TABLE IF NOT EXISTS api_keys (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    key_hash VARCHAR(255) NOT NULL UNIQUE,
-    user_id VARCHAR(255),
-    name VARCHAR(255),
-    quota_daily INT DEFAULT 1000,
-    quota_monthly INT DEFAULT 10000,
-    usage_daily INT DEFAULT 0,
-    usage_monthly INT DEFAULT 0,
-    reset_daily_at TIMESTAMP NULL,
-    reset_monthly_at TIMESTAMP NULL,
+    user_id INT NOT NULL,
+    key_hash VARCHAR(255) UNIQUE NOT NULL,
+    name VARCHAR(100),
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_key (key_hash),
-    INDEX idx_user (user_id)
+    last_used_at TIMESTAMP NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Tabela de Contas Qwen
+-- Tabela de Contas Qwen (Pool)
 CREATE TABLE IF NOT EXISTS qwen_accounts (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    email VARCHAR(255) NOT NULL,
-    password_encrypted VARCHAR(512),
-    access_token TEXT,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    token TEXT,
     refresh_token TEXT,
-    token_expires_at TIMESTAMP NULL,
-    status ENUM('active', 'inactive', 'banned', 'needs_auth') DEFAULT 'active',
+    is_active BOOLEAN DEFAULT TRUE,
+    is_locked BOOLEAN DEFAULT FALSE,
     last_used_at TIMESTAMP NULL,
-    total_requests INT DEFAULT 0,
+    expires_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_email (email),
-    INDEX idx_status (status)
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- Tabela de Rate Limits
-CREATE TABLE IF NOT EXISTS rate_limits (
+-- Tabela de Quotas
+CREATE TABLE IF NOT EXISTS quotas (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    ip_hash VARCHAR(255) NOT NULL,
-    timestamp INT NOT NULL,
-    INDEX idx_ip (ip_hash),
-    INDEX idx_timestamp (timestamp)
-);
-
--- Tabela de Request Queue
-CREATE TABLE IF NOT EXISTS request_queue (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    api_key VARCHAR(255) NOT NULL,
-    payload TEXT NOT NULL,
-    status ENUM('pending', 'processing', 'completed', 'failed') DEFAULT 'pending',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    started_at TIMESTAMP NULL,
-    completed_at TIMESTAMP NULL,
-    result TEXT,
-    error_message TEXT,
-    retry_count INT DEFAULT 0,
-    INDEX idx_status (status),
-    INDEX idx_created (created_at)
+    user_id INT NOT NULL,
+    daily_limit INT DEFAULT 1000,
+    monthly_limit INT DEFAULT 10000,
+    daily_used INT DEFAULT 0,
+    monthly_used INT DEFAULT 0,
+    reset_daily DATE,
+    reset_monthly DATE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- Tabela de Logs
-CREATE TABLE IF NOT EXISTS system_logs (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    level VARCHAR(20) DEFAULT 'info',
-    message TEXT,
-    context JSON,
+CREATE TABLE IF NOT EXISTS request_logs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    api_key_id INT,
+    model_used VARCHAR(100),
+    tokens_used INT,
+    status_code INT,
+    response_time_ms INT,
+    ip_address VARCHAR(45),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_level (level),
-    INDEX idx_created (created_at)
+    FOREIGN KEY (api_key_id) REFERENCES api_keys(id) ON DELETE SET NULL
 );
+
+-- Tabela de Rate Limit
+CREATE TABLE IF NOT EXISTS rate_limits (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ip_address VARCHAR(45) NOT NULL,
+    endpoint VARCHAR(255) NOT NULL,
+    request_count INT DEFAULT 1,
+    window_start TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_ip_endpoint (ip_address, endpoint, window_start)
+);
+
+-- Inserir usuário admin padrão (senha: admin123)
+INSERT INTO users (email, password_hash, role) VALUES 
+('admin@qwen2api.local', '\$2y\$10\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'admin');
+
+-- Inserir API Key padrão (chave: sk-fire-admin-key-12345)
+INSERT INTO api_keys (user_id, key_hash, name, is_active) VALUES 
+(1, '\$2y\$10\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Admin Master Key', TRUE);
+
 EOF
 
-# Tenta criar banco se MySQL estiver disponível
-if command -v mysql &> /dev/null; then
-    if mysql -h"$DB_HOST" -u"$DB_USER" -p"$DB_PASS" -e "SELECT 1" &> /dev/null; then
-        log_info "Conectando ao MySQL..."
-        mysql -h"$DB_HOST" -u"$DB_USER" -p"$DB_PASS" < /tmp/qwen2api_schema.sql
-        log_info "Banco de dados criado com sucesso!"
-    else
-        log_warn "Não foi possível conectar ao MySQL. Execute o schema manualmente."
-        log_warn "Arquivo SQL: /tmp/qwen2api_schema.sql"
-    fi
+print_step "Criando banco de dados e tabelas..."
+if mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_ROOT_USER" -p"$DB_ROOT_PASS" < $TEMP_SQL 2>/dev/null; then
+    print_success "Banco de dados criado com sucesso!"
 else
-    log_warn "MySQL client não encontrado. Execute o schema manualmente."
-    log_warn "Arquivo SQL: /tmp/qwen2api_schema.sql"
+    print_error "Falha ao criar banco de dados. Verifique as credenciais."
+    rm $TEMP_SQL
+    exit 1
 fi
 
-rm -f /tmp/qwen2api_schema.sql
+rm $TEMP_SQL
 
-# ============================================
-# Permissões
-# ============================================
-log_info "Configurando permissões..."
+# =============================================================================
+# 2. Configurar Backend PHP
+# =============================================================================
+print_step "Configurando Backend PHP..."
 
-mkdir -p backend-php/uploads
-mkdir -p logs
-chmod 755 backend-php/uploads
-chmod 777 logs
+# Criar arquivo .env para PHP
+cat > backend-php/.env << EOF
+DB_HOST=${DB_HOST}
+DB_PORT=${DB_PORT}
+DB_NAME=${DB_NAME}
+DB_USER=${DB_USER}
+DB_PASS=${DB_PASS}
 
-# ============================================
-# Systemd Services (opcional)
-# ============================================
-if [ "$EUID" -eq 0 ]; then
-    log_info "Criando serviços systemd..."
-    
-    # Serviço Node.js
-    cat > /etc/systemd/system/qwen2api-node.service << EOF
-[Unit]
-Description=Qwen2API Fire Node.js Service
-After=network.target
-
-[Service]
-Type=simple
-User=www-data
-WorkingDirectory=$(pwd)/service-node
-ExecStart=/usr/bin/node dist/index.js
-Restart=always
-RestartSec=10
-Environment=NODE_ENV=production
-
-[Install]
-WantedBy=multi-user.target
+NODE_SERVICE_URL=http://localhost:3001
+API_SECRET_KEY=$(openssl rand -hex 32)
+LOG_LEVEL=info
 EOF
 
-    systemctl daemon-reload
-    systemctl enable qwen2api-node
-    log_info "Serviço systemd criado: qwen2api-node"
-    log_warn "Inicie com: sudo systemctl start qwen2api-node"
+print_success "Arquivo .env do PHP criado"
+
+# Instalar dependências PHP se composer existir
+if command -v composer &> /dev/null; then
+    print_step "Instalando dependências PHP..."
+    cd backend-php
+    composer install --no-interaction --quiet 2>/dev/null || true
+    cd ..
+    print_success "Dependências PHP instaladas"
 else
-    log_warn "Execute como root para criar serviços systemd automaticamente"
+    print_warning "Composer não encontrado. Execute 'composer install' manualmente em backend-php/"
 fi
 
-# ============================================
-# Resumo Final
-# ============================================
-echo ""
-echo "========================================"
-echo -e "${GREEN}✅ Instalação concluída!${NC}"
-echo "========================================"
-echo ""
-echo "Próximos passos:"
-echo "1. Edite .env com suas credenciais"
-echo "2. Configure o banco de dados MySQL"
-echo "3. Inicie o serviço Node.js:"
+# =============================================================================
+# 3. Configurar Serviço Node.js
+# =============================================================================
+print_step "Configurando Serviço Node.js..."
+
+# Criar arquivo .env para Node
+cat > service-node/.env << EOF
+PORT=3001
+DB_HOST=${DB_HOST}
+DB_PORT=${DB_PORT}
+DB_NAME=${DB_NAME}
+DB_USER=${DB_USER}
+DB_PASS=${DB_PASS}
+
+BROWSER_POOL_SIZE=2
+MAX_INFLIGHT=1
+ACCOUNT_MIN_INTERVAL_MS=1200
+
+LOG_LEVEL=info
+SETUP_LOCK=true
+EOF
+
+print_success "Arquivo .env do Node criado"
+
+# Instalar dependências Node se npm existir
+if command -v npm &> /dev/null; then
+    print_step "Instalando dependências Node.js..."
+    cd service-node
+    npm install --silent 2>/dev/null || true
+    cd ..
+    print_success "Dependências Node.js instaladas"
+else
+    print_warning "npm não encontrado. Execute 'npm install' manualmente em service-node/"
+fi
+
+# =============================================================================
+# 4. Criar Arquivo de Bloqueio (Setup Lock) - NODE FICA INATIVO
+# =============================================================================
+print_step "Criando arquivo de bloqueio do serviço Node.js..."
+
+touch service-node/setup.lock
+
+print_success "Serviço Node.js está INATIVO (bloqueado por setup.lock)"
+print_warning "PARA ATIVAR O SERVIÇO NODE.JS, execute:"
+echo "   rm service-node/setup.lock"
 echo "   cd service-node && npm run build && npm start"
-echo "   OU use: sudo systemctl start qwen2api-node"
-echo "4. Configure Apache/Nginx para apontar para backend-php/public"
-echo "5. Teste a API!"
 echo ""
-echo "Documentação completa em: docs/"
+
+# =============================================================================
+# 5. Configurar Permissões
+# =============================================================================
+print_step "Configurando permissões..."
+
+chmod +x backend-php/public/index.php 2>/dev/null || true
+mkdir -p backend-php/storage 2>/dev/null && chmod 755 backend-php/storage || true
+mkdir -p service-node/logs 2>/dev/null && chmod 755 service-node/logs || true
+
+print_success "Permissões configuradas"
+
+# =============================================================================
+# Resumo Final
+# =============================================================================
 echo ""
+echo "🔥 =========================================="
+echo "🔥  Instalação Concluída com Sucesso!"
+echo "🔥 =========================================="
+echo ""
+echo -e "${GREEN}✓ Banco de dados:${NC} ${DB_NAME}"
+echo -e "${GREEN}✓ Usuário DB:${NC} ${DB_USER}"
+echo -e "${GREEN}✓ Backend PHP:${NC} Configurado em backend-php/"
+echo -e "${GREEN}✓ Serviço Node:${NC} Configurado em service-node/ (INATIVO)"
+echo ""
+echo -e "${YELLOW}⚠ PRÓXIMOS PASSOS:${NC}"
+echo ""
+echo "1. Configure seu servidor web (Apache/Nginx) para apontar para:"
+echo "   backend-php/public/"
+echo ""
+echo "2. Teste a API PHP:"
+echo "   curl http://localhost/health"
+echo ""
+echo "3. QUANDO ESTIVER PRONTO, ative o serviço Node.js:"
+echo "   rm service-node/setup.lock"
+echo "   cd service-node && npm run build && npm start"
+echo ""
+echo "4. Acesse o painel administrativo (se implementado):"
+echo "   http://seu-domínio.com/admin"
+echo ""
+echo -e "${BLUE}📚 Documentação completa em: docs/MANUAL_INSTALACAO.md${NC}"
+echo ""
+echo "🔥 =========================================="
