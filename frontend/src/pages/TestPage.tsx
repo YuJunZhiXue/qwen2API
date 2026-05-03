@@ -5,7 +5,7 @@ import { getAuthHeader } from "../lib/auth"
 import { API_BASE } from "../lib/api"
 import { toast } from "sonner"
 
-// 渲染消息内容：自动把 Markdown 图片和图片 URL 渲染成 <img>
+// Render message content: automatically render Markdown images and image URLs as <img>
 function MessageContent({ content }: { content: string }) {
   type Seg = { start: number; end: number; url: string }
   const segs: Seg[] = []
@@ -58,7 +58,7 @@ export default function TestPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
-  // 挂载时从 /v1/models 拉真实模型列表，失败回退到默认三项
+  // Mount: pull real model list from /v1/models, fall back to default three items on failure
   useEffect(() => {
     (async () => {
       try {

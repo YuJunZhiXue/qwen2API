@@ -52,7 +52,7 @@ export default function ImagePage() {
       if (!res.ok) {
         const detail = data?.detail || data?.error || `HTTP ${res.status}`
         setError(String(detail))
-        toast.error(`生成失败: ${String(detail).slice(0, 80)}`)
+        toast.error(`Generation failed: ${String(detail).slice(0, 80)}`)
         return
       }
 
@@ -63,17 +63,17 @@ export default function ImagePage() {
       }))
 
       if (newImages.length === 0) {
-        setError("未返回图片，请重试")
-        toast.error("未返回图片，请重试")
+        setError("No images returned, please try again")
+        toast.error("No images returned, please try again")
         return
       }
 
       setImages(prev => [...newImages, ...prev])
-      toast.success(`成功生成 ${newImages.length} 张图片`)
+      toast.success(`Successfully generated ${newImages.length} images`)
     } catch (err: any) {
-      const msg = err.message || "网络错误"
+      const msg = err.message || "Network error"
       setError(msg)
-      toast.error(`生成失败: ${msg}`)
+      toast.error(`Generation failed: ${msg}`)
     } finally {
       setLoading(false)
     }

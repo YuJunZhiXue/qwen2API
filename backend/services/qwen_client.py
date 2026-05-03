@@ -20,13 +20,13 @@ class QwenClient:
         self.auth_resolver = AuthResolver(account_pool) if account_pool is not None else None
         self.executor = QwenExecutor(self, account_pool)
 
-        # HTTP连接池配置（对齐 ds2api 的高性能设置）
+        # HTTP connection pool configuration (aligned with ds2api high-performance settings)
         limits = httpx.Limits(
             max_connections=100,
             max_keepalive_connections=20,
             keepalive_expiry=30.0,
         )
-        # 增加 read timeout 以支持长任务（工具调用可能需要更长时间）
+        # Increased read timeout to support long-running tasks (tool calls may take longer)
         timeout = httpx.Timeout(connect=30.0, read=300.0, write=30.0, pool=30.0)
         self._http_client = httpx.AsyncClient(
             limits=limits,
@@ -100,9 +100,9 @@ class QwenClient:
                 data = resp.json()
                 return data.get("role") == "user"
             except Exception as e:
-                log.warning(f"[verify_token] JSON 解析失败（可能被拦截或代理异常）: {e}, status={resp.status_code}, text={resp.text[:100]}")
+                log.warning(f"[verify_token] JSON parsing failed (may be intercepted or proxy error): {e}, status={resp.status_code}, text={resp.text[:100]}")
                 if "aliyun_waf" in resp.text.lower() or "<!doctype" in resp.text.lower():
-                    log.info("[verify_token] 遇到 WAF 拦截页面，放行交给浏览器自动化账号流程处理。")
+                    log.info("[verify_token] WAF interception page detected, allowing browser automation account flow to handle.")
                     return True
                 return False
         except Exception as e:
@@ -121,7 +121,7 @@ class QwenClient:
             try:
                 return resp.json().get("data", [])
             except Exception as e:
-                log.warning(f"[list_models] JSON 解析失败: {e}, status={resp.status_code}, text={resp.text[:100]}")
+                log.warning(f"[list_models] JSON parsing failed: {e}, status={resp.status_code}, text={resp.text[:100]}")
                 return []
         except Exception:
             return []
@@ -167,7 +167,7 @@ class QwenClient:
             yield event
 
     async def stream_chat_once(self, token: str, chat_id: str, payload: dict) -> AsyncIterator[dict]:
-        # 使用全局连接池，复用连接（对齐 ds2api）
+        # Using global connection pool, reuse connections (aligned with ds2api)
         async with self._http_client.stream(
             "POST",
             f"{BASE_URL}/api/v2/chat/completions?chat_id={chat_id}",
@@ -177,7 +177,7 @@ class QwenClient:
             if resp.status_code != 200:
                 yield {"status": resp.status_code, "body": await resp.aread()}
                 return
-            # 使用 aiter_text() 保证 UTF-8 正确处理和 SSE 格式完整
+            # Using aiter_text() to ensure correct UTF-8 processing and complete SSE format
             async for chunk in resp.aiter_text():
                 if chunk:
                     yield {"chunk": chunk}

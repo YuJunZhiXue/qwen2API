@@ -9,9 +9,9 @@
 [![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/qwen2api)
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FYuJunZhiXue%2Fqwen2API)
 
-语言 / Language: [中文](./README.md) | [English](./README.en.md)
+Language / Languages: [Chinese](./README.md) | [English](./README.en.md)
 
-qwen2API 用于将通义千问（chat.qwen.ai）网页版能力转换为 OpenAI、Anthropic Claude 与 Gemini 兼容接口。项目后端基于 FastAPI，前端基于 React + Vite，内置管理台、账号池、工具调用解析、图片生成链路与多种部署方式。
+qwen2API is used to convert Qwen (chat.qwen.ai) web version capabilities into OpenAI, Anthropic Claude, and Gemini compatible interfaces. The project backend is based on FastAPI, the frontend is based on React + Vite, with built-in admin panel, account pool, tool call parsing, image generation pipeline, and multiple deployment methods.
 
 ---
 
