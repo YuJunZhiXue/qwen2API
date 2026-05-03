@@ -49,7 +49,7 @@ export default function Dashboard() {
         setStatus(data)
       } catch {
         if (!errOnce) {
-          toast.error("状态获取失败，请在「系统设置」检查您的当前会话 Key。")
+          toast.error("Failed to fetch status, please check your session key in Settings.")
           setErrOnce(true)
         }
       }
@@ -68,20 +68,20 @@ export default function Dashboard() {
     <div className="space-y-8 max-w-5xl relative">
       <div className="relative z-10">
         <div className="absolute -top-10 -left-10 w-40 h-40 bg-primary/20 blur-[100px] rounded-full pointer-events-none" />
-        <h2 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">运行状态</h2>
-        <p className="text-muted-foreground mt-2 text-lg">全局并发监控与千问账号池概览（每 3 秒自动刷新）。</p>
+        <h2 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">Dashboard</h2>
+        <p className="text-muted-foreground mt-2 text-lg">Global concurrency monitoring and Qwen account pool overview (auto-refreshes every 3 seconds).</p>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 relative z-10">
-        <StatCard icon={<Server className="h-5 w-5 text-primary" />} title="可用账号" value={String(acc.valid ?? 0)} accent="primary" sub={`共 ${acc.total ?? 0} 个`} />
-        <StatCard icon={<Activity className="h-5 w-5 text-blue-400" />} title="当前并发" value={String(acc.in_use ?? 0)} accent="blue" sub={`全局上限 ${acc.global_in_use ?? 0}`} />
-        <StatCard icon={<ShieldAlert className="h-5 w-5 text-destructive" />} title="排队请求" value={String(acc.waiting ?? 0)} accent="destructive" sub={`队列上限 ${acc.max_queue_size ?? 0}`} />
-        <StatCard icon={<ActivityIcon className="h-5 w-5 text-orange-400" />} title="限流号/失效号" value={`${acc.rate_limited ?? 0} / ${acc.invalid ?? 0}`} accent="orange" />
+        <StatCard icon={<Server className="h-5 w-5 text-primary" />} title="Available Accounts" value={String(acc.valid ?? 0)} accent="primary" sub={`Total ${acc.total ?? 0}`} />
+        <StatCard icon={<Activity className="h-5 w-5 text-blue-400" />} title="Current Concurrency" value={String(acc.in_use ?? 0)} accent="blue" sub={`Global limit ${acc.global_in_use ?? 0}`} />
+        <StatCard icon={<ShieldAlert className="h-5 w-5 text-destructive" />} title="Queued Requests" value={String(acc.waiting ?? 0)} accent="destructive" sub={`Queue limit ${acc.max_queue_size ?? 0}`} />
+        <StatCard icon={<ActivityIcon className="h-5 w-5 text-orange-400" />} title="Rate limited / Invalid" value={`${acc.rate_limited ?? 0} / ${acc.invalid ?? 0}`} accent="orange" />
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 relative z-10">
-        <StatCard icon={<Flame className="h-5 w-5 text-rose-400" />} title="Chat_ID 预热池" value={String(pool?.total_cached ?? 0)} accent="rose" sub={pool ? `每账号目标 ${pool.target_per_account}  · TTL ${Math.round((pool.ttl_seconds || 0) / 60)} 分钟` : "未启用"} />
-        <StatCard icon={<Database className="h-5 w-5 text-cyan-400" />} title="异步任务" value={String(status?.runtime?.asyncio_running_tasks ?? 0)} accent="cyan" sub="asyncio active task count" />
+        <StatCard icon={<Flame className="h-5 w-5 text-rose-400" />} title="Chat_ID Warmup Pool" value={String(pool?.total_cached ?? 0)} accent="rose" sub={pool ? `Target ${pool.target_per_account}/account · TTL ${Math.round((pool.ttl_seconds || 0) / 60)} min` : "Not enabled"} />
+        <StatCard icon={<Database className="h-5 w-5 text-cyan-400" />} title="Async Tasks" value={String(status?.runtime?.asyncio_running_tasks ?? 0)} accent="cyan" sub="asyncio active task count" />
       </div>
 
       {rows.length > 0 && (
@@ -90,19 +90,19 @@ export default function Dashboard() {
           <div className="flex flex-col space-y-2 p-6 border-b border-border/50 bg-muted/10 relative z-10">
             <h3 className="font-extrabold text-xl tracking-tight flex items-center gap-3">
               <span className="bg-primary w-2 h-6 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.5)]"></span>
-              账号并发详情
+              Account Concurrency Details
             </h3>
           </div>
           <div className="overflow-x-auto relative z-10">
             <table className="w-full text-sm">
               <thead className="bg-muted/20 text-xs uppercase text-muted-foreground">
                 <tr>
-                  <th className="text-left px-6 py-3 font-semibold">邮箱</th>
-                  <th className="text-left px-4 py-3 font-semibold">状态</th>
-                  <th className="text-right px-4 py-3 font-semibold">在途</th>
-                  <th className="text-right px-4 py-3 font-semibold">预热 chat_id</th>
-                  <th className="text-right px-4 py-3 font-semibold">连失</th>
-                  <th className="text-right px-4 py-3 font-semibold">限流次</th>
+                  <th className="text-left px-6 py-3 font-semibold">Email</th>
+                  <th className="text-left px-4 py-3 font-semibold">Status</th>
+                  <th className="text-right px-4 py-3 font-semibold">Inflight</th>
+                  <th className="text-right px-4 py-3 font-semibold">Warmup chat_id</th>
+                  <th className="text-right px-4 py-3 font-semibold">Consecutive Failures</th>
+                  <th className="text-right px-4 py-3 font-semibold">Rate limit Strikes</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/40">
@@ -139,9 +139,9 @@ export default function Dashboard() {
         <div className="flex flex-col space-y-2 p-8 border-b border-border/50 bg-muted/10 relative z-10">
           <h3 className="font-extrabold text-2xl tracking-tight flex items-center gap-3">
             <span className="bg-primary w-2 h-8 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.5)]"></span>
-            API 接口池
+            API Endpoint Pool
           </h3>
-          <p className="text-base text-muted-foreground ml-5">兼容主流 AI 协议的调用入口，默认无需认证，或通过 API Key 访问。</p>
+          <p className="text-base text-muted-foreground ml-5">Call entry points compatible with mainstream AI protocols, no authentication required by default or accessible via API Key.</p>
         </div>
         <div className="p-0 relative z-10">
           <div className="divide-y divide-border/50 text-sm">

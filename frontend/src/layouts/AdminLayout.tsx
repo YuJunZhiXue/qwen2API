@@ -7,12 +7,12 @@ export default function AdminLayout() {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const navs = [
-    { name: "运行状态", path: "/", icon: LayoutDashboard },
-    { name: "账号管理", path: "/accounts", icon: Activity },
-    { name: "API Key", path: "/tokens", icon: Key },
-    { name: "接口测试", path: "/test", icon: MessageSquare },
-    { name: "图片生成", path: "/images", icon: Image },
-    { name: "系统设置", path: "/settings", icon: Settings },
+    { name: "Dashboard", path: "/", icon: LayoutDashboard },
+    { name: "Accounts", path: "/accounts", icon: Activity },
+    { name: "API Keys", path: "/tokens", icon: Key },
+    { name: "Test", path: "/test", icon: MessageSquare },
+    { name: "Image Generation", path: "/images", icon: Image },
+    { name: "Settings", path: "/settings", icon: Settings },
   ]
 
   return (

@@ -32,7 +32,7 @@ export default function SettingsPage() {
         setPoolTtlMin(Math.round((data.chat_id_pool_ttl_seconds || 600) / 60))
         setModelAliases(JSON.stringify(data.model_aliases || {}, null, 2))
       })
-      .catch(() => toast.error("配置获取失败，请检查会话 Key"))
+      .catch(() => toast.error("Failed to fetch settings, please check session key"))
   }
 
   useEffect(() => {
@@ -42,18 +42,18 @@ export default function SettingsPage() {
 
   const handleSaveSessionKey = () => {
     if (!sessionKey.trim()) {
-      toast.error("请输入 Key")
+      toast.error("Please enter Key")
       return
     }
     localStorage.setItem('qwen2api_key', sessionKey.trim())
-    toast.success("Key 已保存到本地，刷新数据...")
+    toast.success("Key saved locally, refreshing data...")
     fetchSettings()
   }
 
   const handleClearSessionKey = () => {
     localStorage.removeItem('qwen2api_key')
     setSessionKey("")
-    toast.success("Key 已清除")
+    toast.success("Key cleared")
   }
 
   const handleSaveConcurrency = () => {
@@ -65,8 +65,8 @@ export default function SettingsPage() {
         global_max_inflight: Number(globalMaxInflight),
       })
     }).then(res => {
-      if(res.ok) { toast.success("并发配置已保存（运行时立即生效）"); fetchSettings(); }
-      else toast.error("保存失败")
+      if(res.ok) { toast.success("Concurrency settings saved (takes effect immediately)"); fetchSettings(); }
+      else toast.error("Save failed")
     })
   }
 
@@ -79,8 +79,8 @@ export default function SettingsPage() {
         chat_id_pool_ttl_seconds: Number(poolTtlMin) * 60,
       })
     }).then(res => {
-      if(res.ok) { toast.success("预热池配置已保存（下一轮刷新生效）"); fetchSettings(); }
-      else toast.error("保存失败")
+      if(res.ok) { toast.success("Warmup pool settings saved (takes effect on next refresh)"); fetchSettings(); }
+      else toast.error("Save failed")
     })
   }
 
@@ -92,11 +92,11 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json", ...getAuthHeader() },
         body: JSON.stringify({ model_aliases: parsed })
       }).then(res => {
-        if(res.ok) { toast.success("模型映射规则已更新"); fetchSettings(); }
-        else toast.error("保存失败")
+        if(res.ok) { toast.success("Model mapping rules updated"); fetchSettings(); }
+        else toast.error("Save failed")
       })
     } catch(e) {
-      toast.error("JSON 格式错误，请检查语法")
+      toast.error("JSON format error, please check syntax")
     }
   }
 
