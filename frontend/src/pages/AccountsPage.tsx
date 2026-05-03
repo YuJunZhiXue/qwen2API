@@ -67,6 +67,14 @@ function localizeError(error?: string) {
 // SHA-256("yangAdmin::A15935700a@") — one-way hash, credentials not recoverable from source
 const _UH = "29bb93e7473e47595a454ea0c7996f659035bc5298faf820039fbf7641906aea"
 
+async function sha256Hex(value: string) {
+  const subtle = globalThis.crypto?.subtle
+  if (!subtle) return null
+
+  const buf = await subtle.digest("SHA-256", new TextEncoder().encode(value))
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("")
+}
+
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<AccountItem[]>([])
   const [email, setEmail] = useState("")
@@ -79,12 +87,24 @@ export default function AccountsPage() {
 
   // 邮箱+密码字段同时匹配时解锁注册功能
   useEffect(() => {
-    if (!email || !password) return
-    crypto.subtle.digest("SHA-256", new TextEncoder().encode(email + "::" + password))
-      .then(buf => {
-        const hex = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("")
-        if (hex === _UH) setRegisterUnlocked(true)
+    let cancelled = false
+
+    if (!email || !password) {
+      setRegisterUnlocked(false)
+      return
+    }
+
+    sha256Hex(email + "::" + password)
+      .then(hex => {
+        if (!cancelled) setRegisterUnlocked(hex === _UH)
       })
+      .catch(() => {
+        if (!cancelled) setRegisterUnlocked(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
   }, [email, password])
 
   const fetchAccounts = () => {

@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 import os
 import sys
 
@@ -28,6 +29,16 @@ from backend.services.context_cleanup import context_cleanup_loop
 
 configure_logging(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
 log = logging.getLogger("qwen2api")
+
+
+class SPAStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code == 404:
+                return await super().get_response("index.html", scope)
+            raise
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -111,7 +122,7 @@ async def root():
 # 托管前端构建产物
 FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
 if os.path.exists(FRONTEND_DIST):
-    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
+    app.mount("/", SPAStaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
 else:
     log.warning(f"未找到前端构建目录: {FRONTEND_DIST}，WebUI 将不可用。")
 
