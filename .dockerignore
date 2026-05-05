@@ -1,9 +1,9 @@
-# Git 相关
+# Git related
 .git
 .github
 .gitignore
 
-# 环境配置
+# Environment configuration
 .env
 .env.local
 .env.*.local
@@ -11,7 +11,7 @@
 venv
 env/
 
-# Python 缓存
+# Python cache
 __pycache__/
 **/__pycache__/
 **/*.pyc
@@ -27,7 +27,7 @@ build/
 .coverage
 htmlcov/
 
-# 日志和数据
+# Logs and data
 *.log
 data/
 logs/
@@ -35,7 +35,7 @@ outputs/
 temp/
 tmp/
 
-# 前端
+# Frontend
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
@@ -49,7 +49,7 @@ frontend/.turbo/
 *~
 .DS_Store
 
-# 文档（构建时不需要）
+# Documentation (not needed for build)
 *.md
 !README.md
 SESSION_*.md

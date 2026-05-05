@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-qwen2API Enterprise Gateway 启动脚本
+qwen2API Enterprise Gateway Startup Script
 
-前端: Vite dev server  http://localhost:5174  (热更新)
-后端: uvicorn          http://localhost:7860  (API 网关)
+Frontend: Vite dev server  http://localhost:5174  (Hot reload)
+Backend: uvicorn          http://localhost:7860  (API gateway)
 """
 import os
 import sys
@@ -26,12 +26,12 @@ def ensure_dirs():
 
 def check_python():
     if sys.version_info < (3, 10):
-        print("❌ 需要 Python 3.10+，当前版本:", sys.version)
+        print("❌ Python 3.10+ required, current version:", sys.version)
         sys.exit(1)
 
 
 def install_backend_deps():
-    print("⚡ [1/4] 安装后端依赖...")
+    print("⚡ [1/4] Installing backend dependencies...")
     env = os.environ.copy()
     env["PYTHONPATH"] = str(WORKSPACE_DIR)
     try:
@@ -40,13 +40,13 @@ def install_backend_deps():
             cwd=BACKEND_DIR,
             env=env,
         )
-        print("✓ 后端依赖已就绪")
+        print("✓ Backend dependencies ready")
     except Exception as e:
-        print(f"⚠ 后端依赖安装异常: {e}")
+        print(f"⚠ Backend dependency installation error: {e}")
 
 
 def fetch_browser():
-    print("⚡ [2/4] 检查注册功能所需的 Camoufox 浏览器内核...")
+    print("⚡ [2/4] Checking Camoufox browser engine for registration...")
     env = os.environ.copy()
     env["PYTHONPATH"] = str(WORKSPACE_DIR)
     try:
@@ -55,28 +55,28 @@ def fetch_browser():
             capture_output=True, text=True, timeout=10, env=env,
         )
         if result.returncode == 0 and result.stdout.strip():
-            print("✓ 浏览器内核已存在，跳过下载")
+            print("✓ Browser engine already exists, skipping download")
             return
     except Exception:
         pass
-    print("  -> 正在下载 Camoufox 内核（仅注册/激活账号时会使用，请耐心等待）...")
+    print("  -> Downloading Camoufox engine (used only for registration/activation, please wait)...")
     try:
         subprocess.check_call(
             [sys.executable, "-m", "camoufox", "fetch"],
             cwd=WORKSPACE_DIR,
             env=env,
         )
-        print("✓ 浏览器内核下载完成")
+        print("✓ Browser engine download complete")
     except Exception as e:
-        print(f"⚠ 浏览器内核下载异常: {e}")
+        print(f"⚠ Browser engine download error: {e}")
 
 
 def start_frontend() -> subprocess.Popen:
-    print("⚡ [3/4] 启动前端开发服务器...")
+    print("⚡ [3/4] Starting frontend development server...")
     is_windows = os.name == "nt"
 
     if not (FRONTEND_DIR / "node_modules").exists():
-        print("  -> 正在执行 npm install...")
+        print("  -> Running npm install...")
         try:
             subprocess.check_call(
                 "npm install" if is_windows else ["npm", "install"],
@@ -84,7 +84,7 @@ def start_frontend() -> subprocess.Popen:
                 shell=is_windows,
             )
         except subprocess.CalledProcessError as e:
-            print(f"❌ npm install 失败: {e}")
+            print(f"❌ npm install failed: {e}")
             sys.exit(1)
 
     proc = subprocess.Popen(
@@ -92,7 +92,7 @@ def start_frontend() -> subprocess.Popen:
         cwd=FRONTEND_DIR,
         shell=is_windows,
     )
-    print(f"✓ 前端已启动 (PID: {proc.pid})  →  http://127.0.0.1:5174")
+    print(f"✓ Frontend started (PID: {proc.pid})  →  http://127.0.0.1:5174")
     return proc
 
 
@@ -109,7 +109,7 @@ def kill_port(port: int):
                     pid = line.strip().split()[-1]
                     if pid.isdigit():
                         subprocess.run(["taskkill", "/F", "/PID", pid], capture_output=True)
-                        print(f"  -> 已终止占用 {port} 端口的旧进程 (PID: {pid})")
+                        print(f"  -> Terminated process occupying port {port} (PID: {pid})")
                         time.sleep(1)
                         return
         else:
@@ -120,7 +120,7 @@ def kill_port(port: int):
             pid = result.stdout.strip()
             if pid:
                 subprocess.run(["kill", "-9", pid], capture_output=True)
-                print(f"  -> 已终止占用 {port} 端口的旧进程 (PID: {pid})")
+                print(f"  -> Terminated process occupying port {port} (PID: {pid})")
                 time.sleep(1)
     except Exception:
         pass
@@ -151,7 +151,7 @@ def start_backend() -> subprocess.Popen:
         stderr=subprocess.STDOUT,
         bufsize=0,
     )
-    print(f"✓ 后端进程已启动 (PID: {proc.pid})，正在等待服务完成初始化...")
+    print(f"✓ Backend process started (PID: {proc.pid}), waiting for service initialization...")
 
     import threading
     ready_event = threading.Event()
@@ -163,16 +163,16 @@ def start_backend() -> subprocess.Popen:
             except Exception:
                 decoded = str(line)
             print(decoded, end="")
-            if "Application startup complete" in decoded or "服务已完全就绪" in decoded:
+            if "Application startup complete" in decoded or "Service fully ready" in decoded:
                 ready_event.set()
 
     threading.Thread(target=read_output, daemon=True).start()
 
     started = ready_event.wait(timeout=300)
     if not started:
-        print("⚠ 后端初始化超时，服务可能未完全就绪")
+        print("⚠ Backend initialization timeout, service may not be fully ready")
     else:
-        print("✓ 服务已完全就绪")
+        print("✓ Service fully ready")
 
     return proc
 
@@ -188,22 +188,22 @@ def main():
     port = os.environ.get("PORT", "7860")
     print()
     print("=" * 50)
-    print("  qwen2API 已上线")
-    print(f"  前端 WebUI:   http://127.0.0.1:5174")
-    print(f"  后端 API:     http://127.0.0.1:{port}")
+    print("  qwen2API is now online")
+    print(f"  Frontend WebUI:   http://127.0.0.1:5174")
+    print(f"  Backend API:     http://127.0.0.1:{port}")
     print("=" * 50)
-    print("  按 Ctrl+C 停止所有服务")
+    print("  Press Ctrl+C to stop all services")
     print()
 
     def signal_handler(sig, frame):
-        print("\n正在关闭服务...")
+        print("\nShutting down services...")
         for p in (backend_proc, frontend_proc):
             try:
                 p.terminate()
             except Exception:
                 pass
         backend_proc.wait()
-        print("服务已停止")
+        print("Services stopped")
         sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
@@ -212,10 +212,10 @@ def main():
     try:
         while True:
             if backend_proc.poll() is not None:
-                print(f"❌ 后端进程异常退出 (退出码: {backend_proc.returncode})")
+                print(f"❌ Backend process exited unexpectedly (exit code: {backend_proc.returncode})")
                 break
             if frontend_proc.poll() is not None:
-                print(f"❌ 前端进程异常退出 (退出码: {frontend_proc.returncode})")
+                print(f"❌ Frontend process exited unexpectedly (exit code: {frontend_proc.returncode})")
                 break
             time.sleep(1)
     except KeyboardInterrupt:

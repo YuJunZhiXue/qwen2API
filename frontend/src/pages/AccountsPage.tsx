@@ -38,12 +38,12 @@ function statusStyle(code?: string) {
 
 function statusText(acc: AccountItem) {
   switch (acc.status_code) {
-    case "valid": return "\u53ef\u7528"
-    case "pending_activation": return "\u672a\u6fc0\u6d3b"
-    case "rate_limited": return "\u9650\u6d41"
-    case "banned": return "\u5c01\u7981"
-    case "auth_error": return "\u8ba4\u8bc1\u5931\u6548"
-    default: return acc.valid ? "\u53ef\u7528" : "\u5931\u6548"
+    case "valid": return "Available"
+    case "pending_activation": return "Pending Activation"
+    case "rate_limited": return "Rate Limited"
+    case "banned": return "Banned"
+    case "auth_error": return "Auth Error"
+    default: return acc.valid ? "Available" : "Invalid"
   }
 }
 
@@ -77,7 +77,7 @@ export default function AccountsPage() {
   const [verifying, setVerifying] = useState<string | null>(null)
   const [verifyingAll, setVerifyingAll] = useState(false)
 
-  // 邮箱+密码字段同时匹配时解锁注册功能
+  // Email + password fields must match simultaneously to unlock registration feature
   useEffect(() => {
     if (!email || !password) return
     crypto.subtle.digest("SHA-256", new TextEncoder().encode(email + "::" + password))

@@ -8,17 +8,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = BASE_DIR / "data"
 
 class Settings(BaseSettings):
-    # 服务配置
+    # Service configuration
     PORT: int = int(os.getenv("PORT", 8080))
     WORKERS: int = int(os.getenv("WORKERS", 3))
     ADMIN_KEY: str = os.getenv("ADMIN_KEY", "admin")
 
-    # 并发配置（浏览器仅用于账号注册，不用于对话请求）
+    # Concurrency configuration (browser only for account registration, not for chat requests)
     BROWSER_POOL_SIZE: int = int(os.getenv("BROWSER_POOL_SIZE", 1))
     MAX_INFLIGHT_PER_ACCOUNT: int = int(os.getenv("MAX_INFLIGHT", 2))
     BROWSER_STREAM_TIMEOUT_SECONDS: int = int(os.getenv("BROWSER_STREAM_TIMEOUT_SECONDS", 1800))
 
-    # 容灾与限流
+    # Disaster recovery and rate limiting
     MAX_RETRIES: int = 3
     RATE_LIMIT_COOLDOWN: int = 600
     ACCOUNT_MIN_INTERVAL_MS: int = int(os.getenv("ACCOUNT_MIN_INTERVAL_MS", 0))
@@ -27,16 +27,16 @@ class Settings(BaseSettings):
     RATE_LIMIT_BASE_COOLDOWN: int = int(os.getenv("RATE_LIMIT_BASE_COOLDOWN", 600))
     RATE_LIMIT_MAX_COOLDOWN: int = int(os.getenv("RATE_LIMIT_MAX_COOLDOWN", 3600))
 
-    # 日志
+    # Logging
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 
-    # 数据文件路径
+    # Data file paths
     ACCOUNTS_FILE: str = os.getenv("ACCOUNTS_FILE", str(DATA_DIR / "accounts.json"))
     USERS_FILE: str = os.getenv("USERS_FILE", str(DATA_DIR / "users.json"))
     CAPTURES_FILE: str = os.getenv("CAPTURES_FILE", str(DATA_DIR / "captures.json"))
     CONFIG_FILE: str = os.getenv("CONFIG_FILE", str(DATA_DIR / "config.json"))
 
-    # ????? / ????
+    # Context attachment configuration
     CONTEXT_INLINE_MAX_CHARS: int = int(os.getenv("CONTEXT_INLINE_MAX_CHARS", 4000))
     CONTEXT_FORCE_FILE_MAX_CHARS: int = int(os.getenv("CONTEXT_FORCE_FILE_MAX_CHARS", 10000))
     CONTEXT_ATTACHMENT_TTL_SECONDS: int = int(os.getenv("CONTEXT_ATTACHMENT_TTL_SECONDS", 1800))
@@ -68,14 +68,14 @@ def save_api_keys(keys: set):
     with open(API_KEYS_FILE, "w", encoding="utf-8") as f:
         json.dump({"keys": list(keys)}, f, indent=2)
 
-# 在内存中存储管理的 API Keys
+# Store managed API Keys in memory
 API_KEYS = load_api_keys()
 
 VERSION = "2.0.0"
 
 settings = Settings()
 
-# 全局映射
+# Global model mapping
 MODEL_MAP = {
     # OpenAI
     "gpt-4o":            "qwen3.6-plus",
