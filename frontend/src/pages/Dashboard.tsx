@@ -3,6 +3,7 @@ import { Server, Activity, ShieldAlert, ActivityIcon, FileJson, Cpu, Shield, Glo
 import { getAuthHeader } from "../lib/auth"
 import { API_BASE } from "../lib/api"
 import { toast } from "sonner"
+import { useTranslation } from "react-i18next"
 
 type AccountRow = {
   email: string
@@ -37,6 +38,7 @@ type Status = {
 }
 
 export default function Dashboard() {
+  const { t } = useTranslation()
   const [status, setStatus] = useState<Status | null>(null)
   const [errOnce, setErrOnce] = useState(false)
 
@@ -49,7 +51,7 @@ export default function Dashboard() {
         setStatus(data)
       } catch {
         if (!errOnce) {
-          toast.error("状态获取失败，请在「系统设置」检查您的当前会话 Key。")
+          toast.error(t("dashboard.fetchFailed"))
           setErrOnce(true)
         }
       }
@@ -68,20 +70,20 @@ export default function Dashboard() {
     <div className="space-y-8 max-w-5xl relative">
       <div className="relative z-10">
         <div className="absolute -top-10 -left-10 w-40 h-40 bg-primary/20 blur-[100px] rounded-full pointer-events-none" />
-        <h2 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">运行状态</h2>
-        <p className="text-muted-foreground mt-2 text-lg">全局并发监控与千问账号池概览（每 3 秒自动刷新）。</p>
+        <h2 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">{t("dashboard.title")}</h2>
+        <p className="text-muted-foreground mt-2 text-lg">{t("dashboard.subtitle")}</p>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 relative z-10">
-        <StatCard icon={<Server className="h-5 w-5 text-primary" />} title="可用账号" value={String(acc.valid ?? 0)} accent="primary" sub={`共 ${acc.total ?? 0} 个`} />
-        <StatCard icon={<Activity className="h-5 w-5 text-blue-400" />} title="当前并发" value={String(acc.in_use ?? 0)} accent="blue" sub={`全局上限 ${acc.global_in_use ?? 0}`} />
-        <StatCard icon={<ShieldAlert className="h-5 w-5 text-destructive" />} title="排队请求" value={String(acc.waiting ?? 0)} accent="destructive" sub={`队列上限 ${acc.max_queue_size ?? 0}`} />
-        <StatCard icon={<ActivityIcon className="h-5 w-5 text-orange-400" />} title="限流号/失效号" value={`${acc.rate_limited ?? 0} / ${acc.invalid ?? 0}`} accent="orange" />
+        <StatCard icon={<Server className="h-5 w-5 text-primary" />} title={t("dashboard.stats.available")} value={String(acc.valid ?? 0)} accent="primary" sub={t("dashboard.stats.availableSub", { total: acc.total ?? 0 })} />
+        <StatCard icon={<Activity className="h-5 w-5 text-blue-400" />} title={t("dashboard.stats.concurrent")} value={String(acc.in_use ?? 0)} accent="blue" sub={t("dashboard.stats.concurrentSub", { limit: acc.global_in_use ?? 0 })} />
+        <StatCard icon={<ShieldAlert className="h-5 w-5 text-destructive" />} title={t("dashboard.stats.queued")} value={String(acc.waiting ?? 0)} accent="destructive" sub={t("dashboard.stats.queuedSub", { limit: acc.max_queue_size ?? 0 })} />
+        <StatCard icon={<ActivityIcon className="h-5 w-5 text-orange-400" />} title={t("dashboard.stats.rateLimited")} value={`${acc.rate_limited ?? 0} / ${acc.invalid ?? 0}`} accent="orange" />
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 relative z-10">
-        <StatCard icon={<Flame className="h-5 w-5 text-rose-400" />} title="Chat_ID 预热池" value={String(pool?.total_cached ?? 0)} accent="rose" sub={pool ? `每账号目标 ${pool.target_per_account}  · TTL ${Math.round((pool.ttl_seconds || 0) / 60)} 分钟` : "未启用"} />
-        <StatCard icon={<Database className="h-5 w-5 text-cyan-400" />} title="异步任务" value={String(status?.runtime?.asyncio_running_tasks ?? 0)} accent="cyan" sub="asyncio active task count" />
+        <StatCard icon={<Flame className="h-5 w-5 text-rose-400" />} title={t("dashboard.stats.chatIdPool")} value={String(pool?.total_cached ?? 0)} accent="rose" sub={pool ? t("dashboard.stats.chatIdPoolSub", { target: pool.target_per_account, ttl: Math.round((pool.ttl_seconds || 0) / 60) }) : t("dashboard.stats.chatIdPoolDisabled")} />
+        <StatCard icon={<Database className="h-5 w-5 text-cyan-400" />} title={t("dashboard.stats.asyncTasks")} value={String(status?.runtime?.asyncio_running_tasks ?? 0)} accent="cyan" sub="asyncio active task count" />
       </div>
 
       {rows.length > 0 && (
@@ -90,19 +92,19 @@ export default function Dashboard() {
           <div className="flex flex-col space-y-2 p-6 border-b border-border/50 bg-muted/10 relative z-10">
             <h3 className="font-extrabold text-xl tracking-tight flex items-center gap-3">
               <span className="bg-primary w-2 h-6 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.5)]"></span>
-              账号并发详情
+              {t("dashboard.accountTable.title")}
             </h3>
           </div>
           <div className="overflow-x-auto relative z-10">
             <table className="w-full text-sm">
               <thead className="bg-muted/20 text-xs uppercase text-muted-foreground">
                 <tr>
-                  <th className="text-left px-6 py-3 font-semibold">邮箱</th>
-                  <th className="text-left px-4 py-3 font-semibold">状态</th>
-                  <th className="text-right px-4 py-3 font-semibold">在途</th>
-                  <th className="text-right px-4 py-3 font-semibold">预热 chat_id</th>
-                  <th className="text-right px-4 py-3 font-semibold">连失</th>
-                  <th className="text-right px-4 py-3 font-semibold">限流次</th>
+                  <th className="text-left px-6 py-3 font-semibold">{t("dashboard.accountTable.email")}</th>
+                  <th className="text-left px-4 py-3 font-semibold">{t("dashboard.accountTable.status")}</th>
+                  <th className="text-right px-4 py-3 font-semibold">{t("dashboard.accountTable.inflight")}</th>
+                  <th className="text-right px-4 py-3 font-semibold">{t("dashboard.accountTable.warmChat")}</th>
+                  <th className="text-right px-4 py-3 font-semibold">{t("dashboard.accountTable.failures")}</th>
+                  <th className="text-right px-4 py-3 font-semibold">{t("dashboard.accountTable.rateLimitHits")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/40">
@@ -139,9 +141,9 @@ export default function Dashboard() {
         <div className="flex flex-col space-y-2 p-8 border-b border-border/50 bg-muted/10 relative z-10">
           <h3 className="font-extrabold text-2xl tracking-tight flex items-center gap-3">
             <span className="bg-primary w-2 h-8 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.5)]"></span>
-            API 接口池
+            {t("dashboard.endpoints.title")}
           </h3>
-          <p className="text-base text-muted-foreground ml-5">兼容主流 AI 协议的调用入口，默认无需认证，或通过 API Key 访问。</p>
+          <p className="text-base text-muted-foreground ml-5">{t("dashboard.endpoints.subtitle")}</p>
         </div>
         <div className="p-0 relative z-10">
           <div className="divide-y divide-border/50 text-sm">
@@ -150,7 +152,7 @@ export default function Dashboard() {
             <EndpointRow icon={<Globe className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />} iconBg="bg-yellow-500/10" path="POST /v1/models/gemini-pro:generateContent" tag="Gemini" tagColor="yellow" />
             <EndpointRow icon={<ImageIcon className="h-5 w-5 text-purple-500 dark:text-purple-400" />} iconBg="bg-purple-500/10" path="POST /v1/images/generations" tag="Image Gen" tagColor="purple" />
             <EndpointRow icon={<Paperclip className="h-5 w-5 text-cyan-500 dark:text-cyan-400" />} iconBg="bg-cyan-500/10" path="POST /v1/files" tag="Files" tagColor="cyan" />
-            <EndpointRow icon={<Shield className="h-5 w-5 text-slate-600 dark:text-slate-400" />} iconBg="bg-slate-500/10" path="GET /" tag="健康检查" tagColor="slate" />
+            <EndpointRow icon={<Shield className="h-5 w-5 text-slate-600 dark:text-slate-400" />} iconBg="bg-slate-500/10" path="GET /" tag={t("dashboard.endpoints.health")} tagColor="slate" />
           </div>
         </div>
       </div>

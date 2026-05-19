@@ -1,25 +1,33 @@
 import { Outlet, Link, useLocation } from "react-router-dom"
-import { Activity, Key, Settings, LayoutDashboard, MessageSquare, Menu, X, Image } from "lucide-react"
+import { Activity, Key, Settings, LayoutDashboard, MessageSquare, Menu, X, Image, Languages } from "lucide-react"
 import { useState } from "react"
+import { useTranslation } from "react-i18next"
 
 export default function AdminLayout() {
   const loc = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const { t, i18n } = useTranslation()
 
   const navs = [
-    { name: "运行状态", path: "/", icon: LayoutDashboard },
-    { name: "账号管理", path: "/accounts", icon: Activity },
-    { name: "API Key", path: "/tokens", icon: Key },
-    { name: "接口测试", path: "/test", icon: MessageSquare },
-    { name: "图片生成", path: "/images", icon: Image },
-    { name: "系统设置", path: "/settings", icon: Settings },
+    { key: "dashboard", path: "/", icon: LayoutDashboard },
+    { key: "accounts", path: "/accounts", icon: Activity },
+    { key: "apiKey", path: "/tokens", icon: Key },
+    { key: "test", path: "/test", icon: MessageSquare },
+    { key: "images", path: "/images", icon: Image },
+    { key: "settings", path: "/settings", icon: Settings },
   ]
+
+  const currentLang = (i18n.resolvedLanguage || i18n.language || "en").startsWith("pt") ? "pt-BR" : "en"
+
+  const handleLangChange = (lng: string) => {
+    i18n.changeLanguage(lng)
+  }
 
   return (
     <div className="flex min-h-screen w-full bg-background text-foreground transition-colors duration-300">
       {/* Mobile sidebar backdrop */}
       {mobileOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/20 dark:bg-black/50 z-40 md:hidden backdrop-blur-sm transition-opacity"
           onClick={() => setMobileOpen(false)}
         />
@@ -43,17 +51,31 @@ export default function AdminLayout() {
                 to={n.path}
                 onClick={() => setMobileOpen(false)}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-300 ${
-                  active 
-                  ? "bg-primary/10 text-primary shadow-[inset_0_1px_0_0_rgba(0,0,0,0.05)] dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.1)] ring-1 ring-primary/20" 
+                  active
+                  ? "bg-primary/10 text-primary shadow-[inset_0_1px_0_0_rgba(0,0,0,0.05)] dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.1)] ring-1 ring-primary/20"
                   : "text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5 hover:text-foreground"
                 }`}
               >
                 <n.icon className={`h-4 w-4 ${active ? "drop-shadow-[0_0_8px_rgba(168,85,247,0.5)]" : ""}`} />
-                {n.name}
+                {t(`nav.${n.key}`)}
               </Link>
             )
           })}
         </nav>
+        <div className="border-t border-border/40 p-4">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
+            <Languages className="h-4 w-4" />
+            <span className="font-semibold uppercase tracking-wider">Language</span>
+          </label>
+          <select
+            value={currentLang}
+            onChange={e => handleLangChange(e.target.value)}
+            className="w-full h-9 rounded-md border border-input bg-background px-2 text-sm cursor-pointer"
+          >
+            <option value="en">{t("common.languageEN")}</option>
+            <option value="pt-BR">{t("common.languagePT")}</option>
+          </select>
+        </div>
       </aside>
 
       <main className="flex-1 flex flex-col overflow-hidden relative">

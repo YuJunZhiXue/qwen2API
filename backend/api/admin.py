@@ -138,7 +138,7 @@ async def add_account(request: Request):
 
     is_valid = await client.verify_token(token)
     if not is_valid:
-        return {"ok": False, "error": "Invalid token (验证失败，请确认Token有效)"}
+        return {"ok": False, "error": "Invalid token. Please ensure the Token is valid."}
 
     await pool.add(acc)
     return {"ok": True, "email": acc.email}
@@ -173,17 +173,17 @@ async def register_new_account(request: Request):
     # 简单的频率限制保护
     current = len(pool.accounts)
     if current >= 100:
-        return {"ok": False, "error": "账号池已满，请先清理死号"}
+        return {"ok": False, "error": "Account pool is full. Please clean up dead accounts first."}
 
     try:
         acc = await register_qwen_account()
         if acc:
             await pool.add(acc)
             log.info(f"[注册] 注册成功: {acc.email}（当前账号数: {len(pool.accounts)}/100）")
-            return {"ok": True, "email": acc.email, "message": "新账号注册成功并已入池"}
-        return {"ok": False, "error": "自动化注册失败，可能遇到风控或页面元素改变"}
+            return {"ok": True, "email": acc.email, "message": "New account registered and added to the pool."}
+        return {"ok": False, "error": "Auto-registration failed. May be due to anti-bot detection or page changes."}
     except Exception as e:
-        return {"ok": False, "error": f"注册发生异常: {str(e)}"}
+        return {"ok": False, "error": f"Registration error: {str(e)}"}
 
 @router.post("/verify", dependencies=[Depends(verify_admin)])
 async def verify_all_accounts(request: Request):
@@ -222,7 +222,7 @@ async def activate_account(email: str, request: Request):
 
     # 防止并发点击：检查一个运行时标志
     if getattr(acc, "_is_activating", False):
-        return {"ok": False, "error": "该账号正在激活中，请勿重复点击"}
+        return {"ok": False, "error": "This account is being activated. Please do not click repeatedly."}
 
     try:
         setattr(acc, "_is_activating", True)
@@ -231,8 +231,8 @@ async def activate_account(email: str, request: Request):
             acc.valid = True
             acc.activation_pending = False
             await pool.add(acc) # 这会触发覆盖保存
-            return {"ok": True, "message": "账号激活成功"}
-        return {"ok": False, "error": "未能找到激活链接或获取Token"}
+            return {"ok": True, "message": "Account activated successfully."}
+        return {"ok": False, "error": "Could not find activation link or obtain Token."}
     finally:
         setattr(acc, "_is_activating", False)
 

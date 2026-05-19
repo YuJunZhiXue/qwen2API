@@ -1,0 +1,245 @@
+{
+  "nav": {
+    "dashboard": "Status",
+    "accounts": "Contas",
+    "apiKey": "API Keys",
+    "test": "Playground",
+    "images": "Imagens",
+    "settings": "Configurações"
+  },
+  "common": {
+    "save": "Salvar",
+    "clear": "Limpar",
+    "refresh": "Atualizar",
+    "delete": "Excluir",
+    "saveFailed": "Falha ao salvar",
+    "languageEN": "English",
+    "languagePT": "Português (BR)"
+  },
+  "dashboard": {
+    "title": "Status",
+    "subtitle": "Monitoramento global de concorrência e visão do pool de contas Qwen (atualização a cada 3s).",
+    "fetchFailed": "Falha ao buscar status. Verifique sua chave de sessão em 'Configurações'.",
+    "stats": {
+      "available": "Contas disponíveis",
+      "availableSub": "{{total}} no total",
+      "concurrent": "Concorrência ativa",
+      "concurrentSub": "Ativo global {{limit}}",
+      "queued": "Requisições na fila",
+      "queuedSub": "Limite da fila {{limit}}",
+      "rateLimited": "Rate-limit / inválido",
+      "chatIdPool": "Pool de aquecimento Chat_ID",
+      "chatIdPoolSub": "Meta/conta {{target}} · TTL {{ttl}} min",
+      "chatIdPoolDisabled": "Desativado",
+      "asyncTasks": "Tarefas assíncronas"
+    },
+    "accountTable": {
+      "title": "Detalhes de concorrência por conta",
+      "email": "Email",
+      "status": "Status",
+      "inflight": "Em curso",
+      "warmChat": "chat_id aquecido",
+      "failures": "Falhas",
+      "rateLimitHits": "Rate-limit hits"
+    },
+    "endpoints": {
+      "title": "Pool de endpoints da API",
+      "subtitle": "Entradas compatíveis com os principais protocolos de IA. Autenticação opcional ou via API Key.",
+      "health": "Saúde"
+    }
+  },
+  "accounts": {
+    "title": "Gerenciamento de contas",
+    "subtitle": "Gerencie de forma unificada o pool de contas upstream. Diferencia pendente de ativação, rate-limited, banida e inválida.",
+    "verifyAll": "Verificar todas",
+    "refresh": "Atualizar status",
+    "autoRegister": "Nova conta automática",
+    "registering": "Registrando...",
+    "stats": {
+      "valid": "Disponíveis",
+      "pending": "Pendente de ativação",
+      "rateLimited": "Rate-limited",
+      "banned": "Banidas",
+      "invalid": "Outras inválidas"
+    },
+    "status": {
+      "valid": "Disponível",
+      "pendingActivation": "Pendente ativação",
+      "rateLimited": "Rate-limited",
+      "banned": "Banida",
+      "authError": "Erro de auth",
+      "invalid": "Inválida"
+    },
+    "noteRecoverIn": "Recupera em ~{{seconds}}s",
+    "errors": {
+      "unknown": "Erro desconhecido",
+      "activationInProgress": "A conta está sendo ativada, tente atualizar mais tarde",
+      "activationLinkMissing": "Não foi possível encontrar o link de ativação ou o token",
+      "tokenInvalid": "Token inválido ou autenticação falhou",
+      "refreshAccountsFailed": "Falha ao atualizar contas. Verifique sua chave de sessão.",
+      "tokenRequired": "Por favor, informe um Token",
+      "registrationFailed": "Falha no registro da conta",
+      "registrationRequestFailed": "Falha na requisição de registro da conta",
+      "autoRegisterFailed": "Auto-registro falhou",
+      "autoRegisterRequestFailed": "Requisição de auto-registro falhou",
+      "deleteAccountFailed": "Falha ao excluir a conta",
+      "verifyRequestFailed": "Requisição de verificação falhou",
+      "verifyAllFailed": "Verificação em lote falhou",
+      "verifyAllRequestFailed": "Requisição de verificação em lote falhou",
+      "activateRequestFailed": "Requisição de ativação falhou"
+    },
+    "messages": {
+      "injectingAccount": "Injetando conta...",
+      "accountAdded": "Conta adicionada ao pool",
+      "deleting": "Excluindo {{email}}...",
+      "deleted": "Excluída {{email}}",
+      "autoRegistering": "Registrando automaticamente, aguarde...",
+      "registeredPending": "Conta registrada mas ainda precisa de ativação: {{email}}",
+      "registeredSuccess": "Registrada: {{email}}",
+      "verifying": "Verificando {{email}}...",
+      "verifyPassed": "Verificação ok: {{email}}",
+      "verifyFailed": "Verificação falhou: {{detail}}",
+      "verifyingAll": "Verificando todas as contas em paralelo...",
+      "verifyAllDone": "Verificação em lote concluída, concorrência: {{n}}",
+      "activating": "Ativando {{email}}...",
+      "activatingPending": "Conta está sendo ativada, atualize mais tarde: {{email}}",
+      "activationOk": "Ativação bem-sucedida: {{email}}",
+      "activationFailed": "Ativação falhou: {{detail}}",
+      "accountsRefreshed": "Lista de contas atualizada"
+    },
+    "form": {
+      "manualTitle": "Injetar conta manualmente",
+      "manualDesc": "Faça login em chat.qwen.ai, pressione F12 para abrir o DevTools, encontre o token em Application / Storage › Local Storage e cole o valor bruto abaixo.",
+      "warningTitle": "Importante: cole APENAS o valor bruto do token vindo do Local Storage. NÃO extraia da aba Network ou de cabeçalhos Authorization.",
+      "warningSub": "Não inclua o prefixo 'Bearer' nem cole texto Authorization inteiro. Email e senha são opcionais; o sistema valida o token antes de injetar.",
+      "tokenLabel": "Token (obrigatório)",
+      "tokenPlaceholder": "Cole o token bruto copiado do Local Storage",
+      "emailLabel": "Email (opcional)",
+      "emailPlaceholder": "Endereço de email",
+      "passwordLabel": "Senha (opcional)",
+      "passwordPlaceholder": "Usada para auto-refresh ou ativação",
+      "submitAdd": "Injetar conta"
+    },
+    "table": {
+      "title": "Lista de contas",
+      "email": "Conta",
+      "status": "Status",
+      "load": "Carga de concorrência",
+      "loadUnit": "threads",
+      "note": "Observação",
+      "action": "Ações",
+      "empty": "Sem contas. Injete manualmente ou use a opção de nova conta automática.",
+      "activate": "Ativar",
+      "verifySingle": "Verificar",
+      "deleteAccount": "Excluir conta"
+    }
+  },
+  "tokens": {
+    "title": "Distribuição de API Keys",
+    "subtitle": "Gerencie credenciais que podem acessar este gateway.",
+    "refresh": "Atualizar",
+    "refreshed": "Atualizado",
+    "generate": "Gerar nova Key",
+    "generated": "Nova API Key gerada",
+    "generateFailed": "Falha ao gerar, verifique permissões",
+    "deleted": "API Key excluída",
+    "deleteFailed": "Falha ao excluir",
+    "fetchFailed": "Falha ao atualizar, verifique sua chave de sessão",
+    "table": {
+      "index": "#",
+      "actions": "Ações",
+      "empty": "Sem API Keys"
+    }
+  },
+  "test": {
+    "title": "Teste de endpoint",
+    "subtitle": "Teste se sua distribuição de API está funcionando.",
+    "modelLabel": "Modelo:",
+    "stream": "Streaming",
+    "clear": "Limpar conversa",
+    "empty": "Envie uma mensagem para iniciar o teste. O sistema chamará /v1/chat/completions.",
+    "thinking": "Pensando...",
+    "thinkingProcess": "Raciocínio",
+    "thinkingChars": "{{n}} caracteres",
+    "inputPlaceholder": "Digite uma mensagem de teste...",
+    "emptyResponse": "Resposta vazia (conta pode estar inativa ou indisponível)",
+    "networkError": "Erro de rede: {{message}}",
+    "unknownResponse": "Resposta desconhecida: {{response}}"
+  },
+  "images": {
+    "title": "Geração de imagens",
+    "subtitle": "Gere imagens com IA via Qwen3.6-Plus. Múltiplas proporções suportadas.",
+    "promptLabel": "Descrição da imagem (Prompt)",
+    "promptPlaceholder": "Descreva a imagem que quer gerar. Ex.: gato estilo cyberpunk, luzes neon, ultra-realista",
+    "promptTip": "Ctrl+Enter gera rapidamente",
+    "ratioLabel": "Proporção",
+    "countLabel": "Quantidade",
+    "countSuffix": "{{n}}",
+    "generate": "Gerar imagem",
+    "generating": "Gerando...",
+    "noImagesReturned": "Nenhuma imagem retornada, tente novamente",
+    "generatedSuccess": "Geradas {{n}} imagem(ns)",
+    "generationFailed": "Falha na geração: {{detail}}",
+    "networkError": "Erro de rede",
+    "imageLoadFailed": "Falha ao carregar a imagem",
+    "loadingState": "Gerando imagem...",
+    "loadingHint": "A geração geralmente leva 10-30 segundos, aguarde",
+    "resultsTitle": "Resultados ({{n}})",
+    "clearAll": "Limpar",
+    "download": "Baixar",
+    "openInNewWindow": "Abrir em nova janela",
+    "emptyTitle": "Sem imagens",
+    "emptyHint": "Digite uma descrição acima e clique em 'Gerar imagem' para começar"
+  },
+  "settings": {
+    "title": "Configurações do sistema",
+    "subtitle": "Gerencie a autenticação do console e a configuração runtime do gateway.",
+    "refreshConfig": "Atualizar configurações",
+    "configRefreshed": "Configurações atualizadas",
+    "fetchFailed": "Falha ao buscar configurações. Verifique sua chave de sessão.",
+    "sessionKey": {
+      "title": "Chave de sessão atual",
+      "subtitle": "Cole aqui sua API Key existente. O console usará para todas as operações administrativas. (Armazenada no localStorage do navegador.)",
+      "placeholder": "sk-qwen-... ou chave admin padrão 'admin'",
+      "keyRequired": "Por favor, informe uma Key",
+      "saved": "Key salva localmente, atualizando dados...",
+      "cleared": "Key removida"
+    },
+    "connection": {
+      "title": "Informações de conexão",
+      "baseUrlLabel": "URL base da API"
+    },
+    "core": {
+      "title": "Concorrência principal",
+      "subtitle": "Slots de concorrência runtime e limites de fila (mudanças aplicadas imediatamente).",
+      "version": "Versão atual do sistema",
+      "maxInflightLabel": "Inflight máximo por conta (max_inflight_per_account)",
+      "maxInflightDesc": "Requisições simultâneas por conta upstream. Alto demais banimento; baixo demais subutiliza.",
+      "globalMaxInflightLabel": "Inflight cap global (global_max_inflight)",
+      "globalMaxInflightDesc": "Limite total de requisições simultâneas. 0 = ilimitado. Mapeia ao pico de 'Tarefas assíncronas' no Dashboard.",
+      "saveConcurrency": "Salvar concorrência",
+      "saveConcurrencyToast": "Concorrência salva (aplicada imediatamente)"
+    },
+    "pool": {
+      "title": "Pool de aquecimento Chat_ID",
+      "subtitle": "Chat_ids pré-criados evitam o handshake upstream /chats/new (0.5~6s). Mudanças aplicadas imediatamente.",
+      "targetLabel": "Meta por conta (target)",
+      "targetDesc": "Quantos chat_ids pré-aquecer por conta. Padrão 5.",
+      "ttlLabel": "TTL (minutos)",
+      "ttlDesc": "Descartar chat_ids mais antigos que isto. Padrão 10.",
+      "savePool": "Salvar pool de aquecimento",
+      "savePoolToast": "Pool salvo (vigente a partir do próximo refresh)"
+    },
+    "modelAliases": {
+      "title": "Mapeamento automático de modelos (Model Aliases)",
+      "subtitle": "Nomes de modelo recebidos serão roteados para os modelos Qwen reais abaixo. Edite como JSON padrão.",
+      "saveAliases": "Salvar mapeamento",
+      "saveAliasesToast": "Mapeamento de modelos atualizado",
+      "jsonError": "Erro de sintaxe JSON, verifique"
+    },
+    "saveFailed": "Falha ao salvar",
+    "example": {
+      "title": "Exemplos de uso"
+    }
+  }
+}
