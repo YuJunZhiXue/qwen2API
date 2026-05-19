@@ -1,0 +1,246 @@
+{
+  "nav": {
+    "dashboard": "Status",
+    "accounts": "Accounts",
+    "apiKey": "API Keys",
+    "test": "Playground",
+    "images": "Images",
+    "settings": "Settings"
+  },
+  "common": {
+    "save": "Save",
+    "clear": "Clear",
+    "refresh": "Refresh",
+    "delete": "Delete",
+    "saveFailed": "Save failed",
+    "languageEN": "English",
+    "languagePT": "Português (BR)",
+    "languageZH": "中文"
+  },
+  "dashboard": {
+    "title": "Status",
+    "subtitle": "Global concurrency monitoring and Qwen account pool overview (auto-refresh every 3s).",
+    "fetchFailed": "Failed to fetch status. Please check your session Key in 'Settings'.",
+    "stats": {
+      "available": "Available accounts",
+      "availableSub": "{{total}} total",
+      "concurrent": "Active concurrency",
+      "concurrentSub": "Global active {{limit}}",
+      "queued": "Queued requests",
+      "queuedSub": "Queue limit {{limit}}",
+      "rateLimited": "Rate-limited / invalid",
+      "chatIdPool": "Chat_ID warm pool",
+      "chatIdPoolSub": "Target/account {{target}} · TTL {{ttl}} min",
+      "chatIdPoolDisabled": "Disabled",
+      "asyncTasks": "Async tasks"
+    },
+    "accountTable": {
+      "title": "Account concurrency details",
+      "email": "Email",
+      "status": "Status",
+      "inflight": "In-flight",
+      "warmChat": "Warm chat_id",
+      "failures": "Failures",
+      "rateLimitHits": "Rate-limit hits"
+    },
+    "endpoints": {
+      "title": "API endpoint pool",
+      "subtitle": "Entry points compatible with mainstream AI protocols. Auth is optional or via API Key.",
+      "health": "Health"
+    }
+  },
+  "accounts": {
+    "title": "Account management",
+    "subtitle": "Unified management of the upstream account pool. Distinguishes pending activation, rate-limited, banned and invalid states.",
+    "verifyAll": "Verify all",
+    "refresh": "Refresh status",
+    "autoRegister": "One-click new account",
+    "registering": "Registering...",
+    "stats": {
+      "valid": "Available",
+      "pending": "Pending activation",
+      "rateLimited": "Rate-limited",
+      "banned": "Banned",
+      "invalid": "Other invalid"
+    },
+    "status": {
+      "valid": "Available",
+      "pendingActivation": "Pending activation",
+      "rateLimited": "Rate-limited",
+      "banned": "Banned",
+      "authError": "Auth error",
+      "invalid": "Invalid"
+    },
+    "noteRecoverIn": "Recovers in ~{{seconds}}s",
+    "errors": {
+      "unknown": "Unknown error",
+      "activationInProgress": "Account is being activated, please refresh later",
+      "activationLinkMissing": "Could not find activation link or token",
+      "tokenInvalid": "Token invalid or authentication failed",
+      "refreshAccountsFailed": "Failed to refresh accounts. Check your session Key.",
+      "tokenRequired": "Please provide a Token",
+      "registrationFailed": "Account registration failed",
+      "registrationRequestFailed": "Account registration request failed",
+      "autoRegisterFailed": "Auto-register failed",
+      "autoRegisterRequestFailed": "Auto-register request failed",
+      "deleteAccountFailed": "Failed to delete account",
+      "verifyRequestFailed": "Verify request failed",
+      "verifyAllFailed": "Bulk verify failed",
+      "verifyAllRequestFailed": "Bulk verify request failed",
+      "activateRequestFailed": "Activate request failed"
+    },
+    "messages": {
+      "injectingAccount": "Injecting account...",
+      "accountAdded": "Account joined the pool",
+      "deleting": "Deleting {{email}}...",
+      "deleted": "Deleted {{email}}",
+      "autoRegistering": "Auto-registering, please wait...",
+      "registeredPending": "Account registered but still requires activation: {{email}}",
+      "registeredSuccess": "Registered: {{email}}",
+      "verifying": "Verifying {{email}}...",
+      "verifyPassed": "Verification passed: {{email}}",
+      "verifyFailed": "Verification failed: {{detail}}",
+      "verifyingAll": "Bulk verifying all accounts...",
+      "verifyAllDone": "Bulk verify done, concurrency: {{n}}",
+      "activating": "Activating {{email}}...",
+      "activatingPending": "Account is being activated, please refresh later: {{email}}",
+      "activationOk": "Activation successful: {{email}}",
+      "activationFailed": "Activation failed: {{detail}}",
+      "accountsRefreshed": "Account list refreshed"
+    },
+    "form": {
+      "manualTitle": "Manually inject account",
+      "manualDesc": "Log in at chat.qwen.ai first, press F12 to open DevTools, look up the token in Application / Storage › Local Storage and paste the raw value below.",
+      "warningTitle": "Important: paste ONLY the raw token value from Local Storage. Do NOT extract from Network requests or Authorization headers.",
+      "warningSub": "Do not include the 'Bearer' prefix or paste any Authorization text. Email and password are optional; the system validates the token before injecting.",
+      "tokenLabel": "Token (required)",
+      "tokenPlaceholder": "Paste the raw token copied from Local Storage",
+      "emailLabel": "Email (optional)",
+      "emailPlaceholder": "Email address",
+      "passwordLabel": "Password (optional)",
+      "passwordPlaceholder": "Used for auto-refresh or activation",
+      "submitAdd": "Inject account"
+    },
+    "table": {
+      "title": "Account list",
+      "email": "Account",
+      "status": "Status",
+      "load": "Concurrency load",
+      "loadUnit": "threads",
+      "note": "Note",
+      "action": "Actions",
+      "empty": "No accounts yet. Inject manually or use one-click new account.",
+      "activate": "Activate",
+      "verifySingle": "Verify",
+      "deleteAccount": "Delete account"
+    }
+  },
+  "tokens": {
+    "title": "API Key distribution",
+    "subtitle": "Manage credentials that can access this gateway.",
+    "refresh": "Refresh",
+    "refreshed": "Refreshed",
+    "generate": "Generate new Key",
+    "generated": "New API Key generated",
+    "generateFailed": "Generation failed, please check permissions",
+    "deleted": "API Key deleted",
+    "deleteFailed": "Deletion failed",
+    "fetchFailed": "Refresh failed, please check your session Key",
+    "table": {
+      "index": "#",
+      "actions": "Actions",
+      "empty": "No API Keys"
+    }
+  },
+  "test": {
+    "title": "Endpoint test",
+    "subtitle": "Test whether your API distribution is working correctly.",
+    "modelLabel": "Model:",
+    "stream": "Stream",
+    "clear": "Clear chat",
+    "empty": "Send a message to start testing. The system will call /v1/chat/completions.",
+    "thinking": "Thinking...",
+    "thinkingProcess": "Reasoning",
+    "thinkingChars": "{{n}} chars",
+    "inputPlaceholder": "Type a test message...",
+    "emptyResponse": "Empty response (account may be inactive or unavailable)",
+    "networkError": "Network error: {{message}}",
+    "unknownResponse": "Unknown response: {{response}}"
+  },
+  "images": {
+    "title": "Image generation",
+    "subtitle": "Generate AI images via Qwen3.6-Plus. Multiple aspect ratios supported.",
+    "promptLabel": "Image description (Prompt)",
+    "promptPlaceholder": "Describe the image you want to generate. e.g.: cyberpunk style cat, neon lights, ultra-realistic style",
+    "promptTip": "Ctrl+Enter for quick generate",
+    "ratioLabel": "Aspect ratio",
+    "countLabel": "Count",
+    "countSuffix": "{{n}}",
+    "generate": "Generate image",
+    "generating": "Generating...",
+    "noImagesReturned": "No images returned, please try again",
+    "generatedSuccess": "Generated {{n}} image(s)",
+    "generationFailed": "Generation failed: {{detail}}",
+    "networkError": "Network error",
+    "imageLoadFailed": "Failed to load image",
+    "loadingState": "Generating image...",
+    "loadingHint": "Image generation usually takes 10-30 seconds, please wait",
+    "resultsTitle": "Results ({{n}})",
+    "clearAll": "Clear",
+    "download": "Download",
+    "openInNewWindow": "Open in new window",
+    "emptyTitle": "No images yet",
+    "emptyHint": "Enter a description above and click 'Generate image' to start"
+  },
+  "settings": {
+    "title": "System settings",
+    "subtitle": "Manage console authentication and gateway runtime configuration.",
+    "refreshConfig": "Refresh config",
+    "configRefreshed": "Configuration refreshed",
+    "fetchFailed": "Failed to fetch configuration. Please check your session Key.",
+    "sessionKey": {
+      "title": "Current session Key",
+      "subtitle": "Paste your existing API Key here. The console will use it for all admin operations. (Stored in browser local storage.)",
+      "placeholder": "sk-qwen-... or default admin key 'admin'",
+      "keyRequired": "Please enter a Key",
+      "saved": "Key saved locally, refreshing data...",
+      "cleared": "Key cleared"
+    },
+    "connection": {
+      "title": "Connection info",
+      "baseUrlLabel": "API base URL"
+    },
+    "core": {
+      "title": "Core concurrency",
+      "subtitle": "Runtime concurrency slots and queue thresholds (changes apply immediately).",
+      "version": "Current system version",
+      "maxInflightLabel": "Max inflight per account (max_inflight_per_account)",
+      "maxInflightDesc": "Concurrent requests per upstream account. Too high may get banned, too low underutilizes.",
+      "globalMaxInflightLabel": "Global inflight cap (global_max_inflight)",
+      "globalMaxInflightDesc": "Hard cap on total concurrent requests across all accounts. 0 = unlimited. Maps to Dashboard 'Async tasks' peak.",
+      "saveConcurrency": "Save concurrency settings",
+      "saveConcurrencyToast": "Concurrency settings saved (applied immediately)"
+    },
+    "pool": {
+      "title": "Chat_ID warm pool",
+      "subtitle": "Pre-built chat_ids skip the upstream /chats/new handshake (0.5~6s). Runtime changes apply immediately.",
+      "targetLabel": "Target per account (target)",
+      "targetDesc": "How many chat_ids to pre-warm per account. Default 5.",
+      "ttlLabel": "TTL (minutes)",
+      "ttlDesc": "Discard chat_ids older than this. Default 10.",
+      "savePool": "Save warm pool settings",
+      "savePoolToast": "Warm pool settings saved (effective from next refresh)"
+    },
+    "modelAliases": {
+      "title": "Automatic model mapping (Model Aliases)",
+      "subtitle": "Incoming model names will be routed by the gateway to the following actual Qwen models. Edit as standard JSON.",
+      "saveAliases": "Save mapping",
+      "saveAliasesToast": "Model aliases updated",
+      "jsonError": "JSON syntax error, please check"
+    },
+    "saveFailed": "Save failed",
+    "example": {
+      "title": "Usage examples"
+    }
+  }
+}

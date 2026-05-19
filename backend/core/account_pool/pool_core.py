@@ -69,15 +69,15 @@ class Account:
 
     def get_status_text(self) -> str:
         status_map = {
-            "valid": "正常",
-            "pending_activation": "待激活",
-            "rate_limited": "限流",
-            "banned": "封禁",
-            "auth_error": "鉴权失败",
-            "invalid": "失效",
-            "unknown": "未知",
+            "valid": "Available",
+            "pending_activation": "Pending activation",
+            "rate_limited": "Rate-limited",
+            "banned": "Banned",
+            "auth_error": "Auth error",
+            "invalid": "Invalid",
+            "unknown": "Unknown",
         }
-        return status_map.get(self.get_status_code(), "未知")
+        return status_map.get(self.get_status_code(), "Unknown")
 
     def to_dict(self):
         return {
