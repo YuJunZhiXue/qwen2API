@@ -17,7 +17,10 @@ export default function AdminLayout() {
     { key: "settings", path: "/settings", icon: Settings },
   ]
 
-  const currentLang = (i18n.resolvedLanguage || i18n.language || "en").startsWith("pt") ? "pt-BR" : "en"
+  const rawLang = (i18n.resolvedLanguage || i18n.language || "en").toLowerCase()
+  const currentLang = rawLang.startsWith("pt") ? "pt-BR"
+                    : rawLang.startsWith("zh") ? "zh"
+                    : "en"
 
   const handleLangChange = (lng: string) => {
     i18n.changeLanguage(lng)
@@ -74,6 +77,7 @@ export default function AdminLayout() {
           >
             <option value="en">{t("common.languageEN")}</option>
             <option value="pt-BR">{t("common.languagePT")}</option>
+            <option value="zh">{t("common.languageZH")}</option>
           </select>
         </div>
       </aside>

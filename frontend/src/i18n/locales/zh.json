@@ -1,0 +1,246 @@
+{
+  "nav": {
+    "dashboard": "运行状态",
+    "accounts": "账号管理",
+    "apiKey": "API Key",
+    "test": "接口测试",
+    "images": "图片生成",
+    "settings": "系统设置"
+  },
+  "common": {
+    "save": "保存",
+    "clear": "清除",
+    "refresh": "刷新",
+    "delete": "删除",
+    "saveFailed": "保存失败",
+    "languageEN": "English",
+    "languagePT": "Português (BR)",
+    "languageZH": "中文"
+  },
+  "dashboard": {
+    "title": "运行状态",
+    "subtitle": "全局并发监控与千问账号池概览（每 3 秒自动刷新）。",
+    "fetchFailed": "状态获取失败，请在「系统设置」检查您的当前会话 Key。",
+    "stats": {
+      "available": "可用账号",
+      "availableSub": "共 {{total}} 个",
+      "concurrent": "当前并发",
+      "concurrentSub": "全局上限 {{limit}}",
+      "queued": "排队请求",
+      "queuedSub": "队列上限 {{limit}}",
+      "rateLimited": "限流号/失效号",
+      "chatIdPool": "Chat_ID 预热池",
+      "chatIdPoolSub": "每账号目标 {{target}}  · TTL {{ttl}} 分钟",
+      "chatIdPoolDisabled": "未启用",
+      "asyncTasks": "异步任务"
+    },
+    "accountTable": {
+      "title": "账号并发详情",
+      "email": "邮箱",
+      "status": "状态",
+      "inflight": "在途",
+      "warmChat": "预热 chat_id",
+      "failures": "连失",
+      "rateLimitHits": "限流次"
+    },
+    "endpoints": {
+      "title": "API 接口池",
+      "subtitle": "兼容主流 AI 协议的调用入口，默认无需认证，或通过 API Key 访问。",
+      "health": "健康检查"
+    }
+  },
+  "accounts": {
+    "title": "账号管理",
+    "subtitle": "统一管理上游账号池，并区分未激活、限流、封禁与失效状态。",
+    "verifyAll": "全量巡检",
+    "refresh": "刷新状态",
+    "autoRegister": "一键获取新号",
+    "registering": "正在注册...",
+    "stats": {
+      "valid": "可用",
+      "pending": "未激活",
+      "rateLimited": "限流",
+      "banned": "封禁",
+      "invalid": "其他失效"
+    },
+    "status": {
+      "valid": "可用",
+      "pendingActivation": "未激活",
+      "rateLimited": "限流",
+      "banned": "封禁",
+      "authError": "认证失效",
+      "invalid": "失效"
+    },
+    "noteRecoverIn": "预计 {{seconds}} 秒后恢复",
+    "errors": {
+      "unknown": "未知错误",
+      "activationInProgress": "账号正在激活中，请稍后刷新",
+      "activationLinkMissing": "激活链接或 Token 获取失败",
+      "tokenInvalid": "Token 无效或认证失败",
+      "refreshAccountsFailed": "刷新账号列表失败，请检查会话密钥",
+      "tokenRequired": "请先填写 Token",
+      "registrationFailed": "账号注入失败",
+      "registrationRequestFailed": "账号注入请求失败",
+      "autoRegisterFailed": "自动注册失败",
+      "autoRegisterRequestFailed": "自动注册请求失败",
+      "deleteAccountFailed": "删除账号失败",
+      "verifyRequestFailed": "验证请求失败",
+      "verifyAllFailed": "全量巡检失败",
+      "verifyAllRequestFailed": "全量巡检请求失败",
+      "activateRequestFailed": "激活请求失败"
+    },
+    "messages": {
+      "injectingAccount": "正在注入账号...",
+      "accountAdded": "账号已加入账号池",
+      "deleting": "正在删除 {{email}}...",
+      "deleted": "已删除 {{email}}",
+      "autoRegistering": "正在自动注册新账号，请稍候...",
+      "registeredPending": "账号已注册，但仍需激活：{{email}}",
+      "registeredSuccess": "注册成功：{{email}}",
+      "verifying": "正在验证 {{email}}...",
+      "verifyPassed": "验证通过：{{email}}",
+      "verifyFailed": "验证失败：{{detail}}",
+      "verifyingAll": "正在并发巡检所有账号...",
+      "verifyAllDone": "全量巡检完成，并发数：{{n}}",
+      "activating": "正在激活 {{email}}...",
+      "activatingPending": "账号正在激活中，请稍后刷新：{{email}}",
+      "activationOk": "激活成功：{{email}}",
+      "activationFailed": "激活失败：{{detail}}",
+      "accountsRefreshed": "账号列表已刷新"
+    },
+    "form": {
+      "manualTitle": "手动注入账号",
+      "manualDesc": "请先在 chat.qwen.ai 登录，然后按 F12 打开开发者工具，在 Application / Storage 里的 Local Storage / 本地存储 中找到 token 并直接复制完整原始值粘贴到下方输入框。",
+      "warningTitle": "重要：请只粘贴 Local Storage / 本地存储 里的 token 原始值，不要从 Network 请求或 Authorization 请求头中提取。",
+      "warningSub": "请不要带 Bearer 前缀，也不要粘贴整段 Authorization 文本。邮箱和密码可以不填，系统会在注入前先验证 token 是否有效。",
+      "tokenLabel": "Token（必填）",
+      "tokenPlaceholder": "粘贴从 Local Storage / 本地存储 直接复制的 token",
+      "emailLabel": "邮箱（选填）",
+      "emailPlaceholder": "邮箱地址",
+      "passwordLabel": "密码（选填）",
+      "passwordPlaceholder": "用于自动刷新或激活",
+      "submitAdd": "注入账号"
+    },
+    "table": {
+      "title": "账号列表",
+      "email": "账号",
+      "status": "状态",
+      "load": "并发负载",
+      "loadUnit": "线程",
+      "note": "说明",
+      "action": "操作",
+      "empty": "暂无账号，请手动注入或一键获取新号。",
+      "activate": "激活",
+      "verifySingle": "单独验证",
+      "deleteAccount": "删除账号"
+    }
+  },
+  "tokens": {
+    "title": "API Key 分发",
+    "subtitle": "管理可以访问此网关的下游凭证。",
+    "refresh": "刷新",
+    "refreshed": "已刷新",
+    "generate": "生成新 Key",
+    "generated": "已生成新的 API Key",
+    "generateFailed": "生成失败，请检查权限",
+    "deleted": "API Key 已删除",
+    "deleteFailed": "删除失败",
+    "fetchFailed": "刷新失败，请检查会话 Key",
+    "table": {
+      "index": "序号",
+      "actions": "操作",
+      "empty": "暂无 API Key"
+    }
+  },
+  "test": {
+    "title": "接口测试",
+    "subtitle": "在此测试您的 API 分发是否正常工作。",
+    "modelLabel": "模型:",
+    "stream": "流式传输 (Stream)",
+    "clear": "清空对话",
+    "empty": "发送一条消息以开始测试，系统将通过 /v1/chat/completions 进行调用。",
+    "thinking": "思考中...",
+    "thinkingProcess": "思考过程",
+    "thinkingChars": "{{n}} 字",
+    "inputPlaceholder": "输入测试消息...",
+    "emptyResponse": "响应为空（账号可能未激活或无可用账号）",
+    "networkError": "网络错误: {{message}}",
+    "unknownResponse": "未知响应: {{response}}"
+  },
+  "images": {
+    "title": "图片生成",
+    "subtitle": "通过 Qwen3.6-Plus 生成 AI 图片，支持多种比例。",
+    "promptLabel": "图片描述 (Prompt)",
+    "promptPlaceholder": "描述你想生成的图片，例如：赛博朋克风格的猫咪，霓虹灯背景，超写实风格",
+    "promptTip": "Ctrl+Enter 快速生成",
+    "ratioLabel": "图片比例",
+    "countLabel": "生成数量",
+    "countSuffix": "{{n}}",
+    "generate": "生成图片",
+    "generating": "生成中...",
+    "noImagesReturned": "未返回图片，请重试",
+    "generatedSuccess": "成功生成 {{n}} 张图片",
+    "generationFailed": "生成失败: {{detail}}",
+    "networkError": "网络错误",
+    "imageLoadFailed": "图片加载失败",
+    "loadingState": "正在生成图片...",
+    "loadingHint": "图片生成通常需要 10-30 秒，请耐心等待",
+    "resultsTitle": "生成结果 ({{n}} 张)",
+    "clearAll": "清空",
+    "download": "下载",
+    "openInNewWindow": "在新窗口打开",
+    "emptyTitle": "还没有生成图片",
+    "emptyHint": "在上方输入描述，点击「生成图片」开始创作"
+  },
+  "settings": {
+    "title": "系统设置",
+    "subtitle": "管理控制台认证与网关运行时配置。",
+    "refreshConfig": "刷新配置",
+    "configRefreshed": "配置已刷新",
+    "fetchFailed": "配置获取失败，请检查会话 Key",
+    "sessionKey": {
+      "title": "当前会话 Key",
+      "subtitle": "将已有的 API Key 粘贴到此处，控制台将使用它进行所有的管理操作。（保存在浏览器本地）",
+      "placeholder": "sk-qwen-... 或默认管理员密钥 admin",
+      "keyRequired": "请输入 Key",
+      "saved": "Key 已保存到本地，刷新数据...",
+      "cleared": "Key 已清除"
+    },
+    "connection": {
+      "title": "连接信息",
+      "baseUrlLabel": "API 基础地址 (Base URL)"
+    },
+    "core": {
+      "title": "核心并发参数",
+      "subtitle": "运行时并发槽位与排队阈值（需要在后端 config.json 中修改后重启生效）。",
+      "version": "当前系统版本",
+      "maxInflightLabel": "单账号最大并发 (max_inflight_per_account)",
+      "maxInflightDesc": "每个上游账号同时处理的请求数。太大易被封，太小不充分利用。",
+      "globalMaxInflightLabel": "全局并发上限 (global_max_inflight)",
+      "globalMaxInflightDesc": "所有账号合计同时在途请求的硬上限。0 = 不限。对应 Dashboard 的「异步任务」峰值。",
+      "saveConcurrency": "保存并发设置",
+      "saveConcurrencyToast": "并发配置已保存（运行时立即生效）"
+    },
+    "pool": {
+      "title": "Chat_ID 预热池",
+      "subtitle": "预建 chat_id 规避上游 /chats/new 握手 (0.5~6s)。运行时修改立即生效。",
+      "targetLabel": "每账号目标数 (target)",
+      "targetDesc": "每个账号预先挂多少个 chat_id 等着。默认 5。",
+      "ttlLabel": "TTL (分钟)",
+      "ttlDesc": "chat_id 超过此时长则丢弃重建，避免被上游静默回收。默认 10。",
+      "savePool": "保存预热池设置",
+      "savePoolToast": "预热池配置已保存（下一轮刷新生效）"
+    },
+    "modelAliases": {
+      "title": "自动模型映射规则 (Model Aliases)",
+      "subtitle": "下游传入的模型名称将被网关自动路由至以下千问实际模型。请使用标准 JSON 格式编辑。",
+      "saveAliases": "保存映射",
+      "saveAliasesToast": "模型映射规则已更新",
+      "jsonError": "JSON 格式错误，请检查语法"
+    },
+    "saveFailed": "保存失败",
+    "example": {
+      "title": "使用示例"
+    }
+  }
+}

@@ -14,7 +14,8 @@
     "delete": "Delete",
     "saveFailed": "Save failed",
     "languageEN": "English",
-    "languagePT": "Português (BR)"
+    "languagePT": "Português (BR)",
+    "languageZH": "中文"
   },
   "dashboard": {
     "title": "Status",
