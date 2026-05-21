@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     CONTEXT_ALLOWED_GENERATED_EXTS: str = os.getenv("CONTEXT_ALLOWED_GENERATED_EXTS", "txt,md,json,log")
     CONTEXT_ALLOWED_USER_EXTS: str = os.getenv("CONTEXT_ALLOWED_USER_EXTS", "txt,md,json,log,xml,yaml,yml,csv,html,css,py,js,ts,java,c,cpp,cs,php,go,rb,sh,zsh,ps1,bat,cmd,pdf,doc,docx,ppt,pptx,xls,xlsx,png,jpg,jpeg,webp,gif,tiff,bmp,svg")
 
+    TOOL_CALL_RESET_ENABLED: bool = os.getenv("TOOL_CALL_RESET_ENABLED", "false").lower() in ("true", "1", "yes")
+    TOOL_CALL_RESET_THRESHOLD: int = int(os.getenv("TOOL_CALL_RESET_THRESHOLD", "10"))
+    TOOL_CALL_RESET_CHAT_ID_TTL: int = int(os.getenv("TOOL_CALL_RESET_CHAT_ID_TTL", "300"))
+
     class Config:
         env_file = ".env"
 

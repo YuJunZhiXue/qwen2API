@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 
 from backend.adapter.standard_request import CLAUDE_CODE_OPENAI_PROFILE, OPENCLAW_OPENAI_PROFILE
+from backend.core.config import settings
 from backend.core.request_logging import get_request_context
 from backend.services import file_content_cache
 from backend.services.client_profiles import (
@@ -567,6 +568,113 @@ def build_prompt_with_tools(system_prompt: str, messages: list, tools: list, *, 
                 latest_short = latest_text[:900] + ("...[latest task truncated]" if len(latest_text) > 900 else "")
                 latest_user_line = f"Human (CURRENT TASK - TOP PRIORITY): {latest_short}"
 
+
+    # 统计历史中的工具调用次数，超过阈值时截断旧历史以减少 Qwen 服务端标记积累
+    tool_call_count = 0
+    if tools and settings.TOOL_CALL_RESET_ENABLED:
+        for msg in messages:
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                tool_call_count += content.count("##TOOL_CALL##")
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict):
+                        if part.get("type") == "tool_use":
+                            tool_call_count += 1
+                        elif part.get("type") == "tool_result":
+                            tool_call_count += 1
+            # 也统计 OpenAI 格式的 tool_calls
+            if msg.get("role") == "assistant" and isinstance(msg.get("tool_calls"), list):
+                tool_call_count += len(msg["tool_calls"])
+
+        if tool_call_count >= settings.TOOL_CALL_RESET_THRESHOLD:
+            log.warning(
+                "[Prompt] 工具调用次数=%d 超过阈值=%d，截断旧历史以减少 Qwen 服务端标记积累",
+                tool_call_count,
+                settings.TOOL_CALL_RESET_THRESHOLD,
+            )
+            # 只保留：system 消息 + 首条 user + 最近 3 轮（6 条）
+            system_msgs = [m for m in messages if m.get("role") == "system"]
+            first_user_msg = next(
+                (m for m in messages
+                 if m.get("role") == "user"
+                 and _extract_user_text_only(m.get("content", ""), client_profile=client_profile).strip()),
+                None,
+            )
+            recent_msgs = messages[-6:] if len(messages) > 6 else messages
+            truncated = system_msgs[:]
+            if first_user_msg is not None and first_user_msg not in recent_msgs:
+                truncated.append(first_user_msg)
+            truncated.extend(recent_msgs)
+            # 重新构建 history_parts
+            history_parts = []
+            used = 0
+            for msg in truncated:
+                role = msg.get("role", "")
+                if role not in ("user", "assistant", "system", "tool"):
+                    continue
+                if role == "tool":
+                    tool_content = msg.get("content", "") or ""
+                    tool_call_id = msg.get("tool_call_id", "")
+                    if isinstance(tool_content, list):
+                        tool_content = "\n".join(
+                            p.get("text", "") for p in tool_content
+                            if isinstance(p, dict) and p.get("type") == "text"
+                        )
+                    elif not isinstance(tool_content, str):
+                        tool_content = str(tool_content)
+                    tool_result_limit = 6000 if (client_profile == CLAUDE_CODE_OPENAI_PROFILE and tools) else 300
+                    if len(tool_content) > tool_result_limit:
+                        tool_content = tool_content[:tool_result_limit] + "...[truncated]"
+                    line = f"[Tool Result]{(' id=' + tool_call_id) if tool_call_id else ''}\n{tool_content}\n[/Tool Result]"
+                    if used + len(line) + 2 > budget and history_parts:
+                        break
+                    history_parts.insert(0, line)
+                    used += len(line) + 2
+                    continue
+                text = _extract_text(
+                    msg.get("content", ""),
+                    user_tool_mode=(bool(tools) and role == "user" and client_profile == CLAUDE_CODE_OPENAI_PROFILE),
+                    client_profile=client_profile,
+                )
+                if role == "assistant" and not text and msg.get("tool_calls"):
+                    tc_parts = []
+                    for tc in msg["tool_calls"]:
+                        fn = tc.get("function", {})
+                        name = fn.get("name", "")
+                        args_str = fn.get("arguments", "{}")
+                        try:
+                            args = json.loads(args_str) if args_str else {}
+                        except (json.JSONDecodeError, ValueError):
+                            args = {"raw": args_str}
+                        tc_parts.append(_render_history_tool_call(name, args, client_profile))
+                    text = "\n".join(tc_parts)
+                if tools and role == "assistant" and any(m in text for m in NEEDSREVIEW_MARKERS):
+                    continue
+                lower_text = text.lower()
+                is_tool_result = role == "user" and (
+                    "[tool result" in lower_text
+                    or text.startswith("{")
+                    or "\"results\"" in text[:100]
+                )
+                if client_profile == CLAUDE_CODE_OPENAI_PROFILE and tools:
+                    if is_tool_result:
+                        max_len = 6000
+                    elif role == "assistant":
+                        max_len = 500
+                    else:
+                        max_len = 1600
+                else:
+                    max_len = 600 if is_tool_result else 1400
+                if len(text) > max_len:
+                    text = text[:max_len] + "...[truncated]"
+                is_tool_result_only_user_msg = role == "user" and not _extract_user_text_only(msg.get("content", ""), client_profile=client_profile).strip() and bool(text.strip())
+                prefix = "" if is_tool_result_only_user_msg else {"user": "Human: ", "assistant": "Assistant: ", "system": "System: "}.get(role, "")
+                line = text if is_tool_result_only_user_msg else f"{prefix}{text}"
+                if used + len(line) + 2 > budget and history_parts:
+                    break
+                history_parts.insert(0, line)
+                used += len(line) + 2
 
     if tools and log.isEnabledFor(logging.DEBUG):
         tool_names = [tool.get("name", "") for tool in tools if tool.get("name")]

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 import time
 
 from backend.core.config import settings
@@ -19,6 +20,48 @@ class QwenExecutor:
         self.auth_resolver = AuthResolver(account_pool) if account_pool is not None else None
         # 会在 app 启动时被 main.py 注入；若未注入则为 None，走同步 create_chat
         self.chat_id_pool = None
+        # 工具调用标记清理：追踪当前 chat_id 的工具调用次数
+        self._tool_call_counts: dict[str, int] = {}  # chat_id -> count
+
+    def _count_tool_calls_in_text(self, text: str) -> int:
+        """统计文本中 ##TOOL_CALL## 标记的出现次数"""
+        if not text:
+            return 0
+        return len(re.findall(r'##TOOL_CALL##', text, re.IGNORECASE))
+
+    def _check_and_reset_chat_id(self, chat_id: str, prompt_content: str) -> bool:
+        """检查工具调用次数，超过阈值时清空 chat_id 池强制新建会话。
+        返回 True 表示已重置，调用方应重新创建 chat_id。"""
+        if not settings.TOOL_CALL_RESET_ENABLED:
+            return False
+        if not self.chat_id_pool:
+            return False
+
+        # 统计 prompt 中的工具调用标记数
+        new_count = self._count_tool_calls_in_text(prompt_content)
+        total = self._tool_call_counts.get(chat_id, 0) + new_count
+
+        if total >= settings.TOOL_CALL_RESET_THRESHOLD:
+            log.warning(
+                "[Executor] chat_id=%s 工具调用标记数=%d 超过阈值=%d，强制重置 chat_id 池",
+                chat_id, total, settings.TOOL_CALL_RESET_THRESHOLD,
+            )
+            # 异步清空 chat_id 池
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(self.chat_id_pool.force_reset("tool_call_threshold"))
+            except RuntimeError:
+                pass
+            # 清理计数器
+            self._tool_call_counts.pop(chat_id, None)
+            return True
+
+        self._tool_call_counts[chat_id] = total
+        return False
+
+    def _cleanup_chat_id_tracking(self, chat_id: str) -> None:
+        """清理已结束会话的计数器"""
+        self._tool_call_counts.pop(chat_id, None)
 
     async def create_chat(self, token: str, model: str, chat_type: str = "t2t") -> str:
         # 预热池快路径：如果能从池里拿到一个已预建的 chat_id 直接用
@@ -111,6 +154,9 @@ class QwenExecutor:
         first_event_logged = False
         last_chunk_time = time.perf_counter()
         total_output_chars = 0  # 方案4：统计输出字符数
+
+        # 工具调用标记清理：检查是否需要强制重置 chat_id
+        self._check_and_reset_chat_id(chat_id, content)
 
         feature_config = payload.get("messages", [{}])[0].get("feature_config", {})
         prompt_len = len(content)
@@ -254,3 +300,8 @@ class QwenExecutor:
                 )
 
         raise Exception(f"All {settings.MAX_RETRIES} attempts failed. Please check upstream accounts.")
+
+    def cleanup_chat_tracking(self, chat_id: str | None) -> None:
+        """请求完成后清理 chat_id 的追踪数据"""
+        if chat_id:
+            self._cleanup_chat_id_tracking(chat_id)

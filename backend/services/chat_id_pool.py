@@ -178,6 +178,21 @@ class ChatIdPool:
                 log.info(f"[ChatIdPool] flushed {n} entries for email={email}")
             return n
 
+    async def force_reset(self, reason: str = "tool_call_threshold") -> int:
+        """强制清空所有账号的 chat_id 池。
+        用于工具调用标记清理：当历史中 ##TOOL_CALL## 标记积累过多时，
+        强制所有账号使用全新 chat_id，确保 Qwen 服务端不积累标记。
+        返回清理的总数量。"""
+        total = 0
+        async with self._lock:
+            for email in list(self._queues.keys()):
+                n = len(self._queues[email])
+                total += n
+                self._queues[email] = deque()
+        if total:
+            log.info(f"[ChatIdPool] force_reset reason={reason} cleared {total} chat_ids across {len(self._queues)} accounts")
+        return total
+
     async def size(self, email: str) -> int:
         async with self._lock:
             return len(self._queues.get(email, []))
