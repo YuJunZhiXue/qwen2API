@@ -120,13 +120,18 @@ export default function TestPage() {
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
         let hasContent = false
+        let buffer = ""
 
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
 
-          const chunk = decoder.decode(value, { stream: true })
-          for (const rawLine of chunk.split("\n")) {
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split("\n")
+          // Keep the last potentially incomplete line in the buffer
+          buffer = lines.pop() || ""
+
+          for (const rawLine of lines) {
             const line = rawLine.trim()
             if (!line || line.startsWith(":") || line === "data: [DONE]") continue
             if (line.startsWith("data: ")) {
@@ -156,8 +161,33 @@ export default function TestPage() {
                     return msgs
                   })
                 }
-              } catch { /* skip */ }
+              } catch { /* skip malformed JSON chunks */ }
             }
+          }
+        }
+
+        // Process any remaining data in the buffer
+        if (buffer.trim()) {
+          const line = buffer.trim()
+          if (line.startsWith("data: ") && line !== "data: [DONE]") {
+            try {
+              const data = JSON.parse(line.slice(6))
+              const content: string = data.choices?.[0]?.delta?.content ?? ""
+              const reasoning: string = data.choices?.[0]?.delta?.reasoning_content ?? ""
+              if (content || reasoning) {
+                hasContent = true
+                setMessages(prev => {
+                  const msgs = [...prev]
+                  const last = msgs[msgs.length - 1]
+                  msgs[msgs.length - 1] = {
+                    ...last,
+                    content: last.content + content,
+                    reasoning: (last.reasoning || "") + reasoning,
+                  }
+                  return msgs
+                })
+              }
+            } catch { /* skip */ }
           }
         }
 
