@@ -54,6 +54,37 @@ def _extract_upstream_error(text: str) -> str | None:
     return None
 
 
+def _common_prefix_len(left: str, right: str) -> int:
+    limit = min(len(left), len(right))
+    index = 0
+    while index < limit and left[index] == right[index]:
+        index += 1
+    return index
+
+
+def _normalize_reasoning_snapshot(evt: dict, previous_snapshot: str) -> tuple[dict, str]:
+    if evt.get("type") != "delta":
+        return evt, previous_snapshot
+
+    phase = evt.get("phase")
+    if phase not in ("think", "thinking_summary"):
+        if previous_snapshot and phase in ("answer", "tool_call"):
+            return evt, ""
+        return evt, previous_snapshot
+
+    content = evt.get("content", "")
+    if evt.get("status") == "finished" and not content:
+        return evt, ""
+    if not evt.get("content_is_snapshot") or not content:
+        return evt, previous_snapshot
+
+    prefix_len = _common_prefix_len(previous_snapshot, content)
+    normalized = dict(evt)
+    normalized["content"] = content[prefix_len:]
+    normalized["content_is_snapshot"] = False
+    return normalized, content
+
+
 class QwenExecutor:
     def __init__(self, engine, account_pool):
         self.engine = engine
@@ -190,6 +221,7 @@ class QwenExecutor:
         total_output_chars = 0  # 方案4：统计输出字符数
         parsed_event_count = 0
         raw_tail = ""
+        reasoning_snapshot = ""
 
         feature_config = payload.get("messages", [{}])[0].get("feature_config", {})
         prompt_len = len(content)
@@ -238,6 +270,7 @@ class QwenExecutor:
                         if upstream_error:
                             raise Exception(upstream_error)
                         for evt in parse_sse_chunk(msg):
+                            evt, reasoning_snapshot = _normalize_reasoning_snapshot(evt, reasoning_snapshot)
                             parsed_event_count += 1
                             if not first_event_logged:
                                 first_event_logged = True
@@ -260,6 +293,7 @@ class QwenExecutor:
             if upstream_error:
                 raise Exception(upstream_error)
             for evt in parse_sse_chunk(buffer):
+                evt, reasoning_snapshot = _normalize_reasoning_snapshot(evt, reasoning_snapshot)
                 parsed_event_count += 1
                 if not first_event_logged:
                     first_event_logged = True

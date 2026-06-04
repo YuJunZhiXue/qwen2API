@@ -14,6 +14,13 @@ class AuthContext:
     user: dict[str, Any] | None
 
 
+def has_quota_exceeded(user: dict[str, Any]) -> bool:
+    quota = user.get("quota", 0)
+    if quota == -1:
+        return False
+    return quota <= user.get("used_tokens", 0)
+
+
 def extract_api_token(request: Request) -> str:
     auth_header = request.headers.get("Authorization", "")
     token = auth_header[7:].strip() if auth_header.startswith("Bearer ") else ""
@@ -40,7 +47,7 @@ async def resolve_auth_context(request: Request, users_db) -> AuthContext:
         if user is None and not isinstance(saved_snapshots, list):
             raise HTTPException(status_code=401, detail="Invalid API Key")
 
-    if user and user.get("quota", 0) <= user.get("used_tokens", 0):
+    if user and has_quota_exceeded(user):
         raise HTTPException(status_code=402, detail="Quota Exceeded")
 
     return AuthContext(token=token, user=user)

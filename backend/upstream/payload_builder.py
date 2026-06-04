@@ -8,7 +8,7 @@ CUSTOM_TOOL_COMPAT_FEATURE_CONFIG = {
     "research_mode": "normal",
     "auto_thinking": True,
     "thinking_mode": "Auto",
-    "thinking_format": "summary",
+    "thinking_format": "detailed",
     "auto_search": False,
     "code_interpreter": False,
     "plugins_enabled": False,

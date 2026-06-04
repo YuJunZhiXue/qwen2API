@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request, HTTPException
 import json
 import uuid
 import logging
+from backend.services.auth_quota import extract_api_token, has_quota_exceeded
 from backend.services.token_calc import count_tokens
 
 log = logging.getLogger("qwen2api.embeddings")
@@ -21,13 +22,7 @@ async def create_embeddings(request: Request):
     users_db = app.state.users_db
     
     # 鉴权 (完全复原单文件逻辑)
-    auth_header = request.headers.get("Authorization", "")
-    token = auth_header[7:].strip() if auth_header.startswith("Bearer ") else ""
-
-    if not token:
-        token = request.headers.get("x-api-key", "").strip()
-    if not token:
-        token = request.query_params.get("key", "").strip() or request.query_params.get("api_key", "").strip()
+    token = extract_api_token(request)
 
     from backend.core.config import API_KEYS, settings
     admin_k = settings.ADMIN_KEY
@@ -38,7 +33,7 @@ async def create_embeddings(request: Request):
 
     users = await users_db.get()
     user = next((u for u in users if u["id"] == token), None)
-    if user and user.get("quota", 0) <= user.get("used_tokens", 0):
+    if user and has_quota_exceeded(user):
         raise HTTPException(status_code=402, detail="Quota Exceeded")
         
     body = await request.json()

@@ -654,9 +654,8 @@ def build_prompt_with_tools(system_prompt: str, messages: list, tools: list, *, 
                 )
             elif not isinstance(tool_content, str):
                 tool_content = str(tool_content)
-            tool_result_limit = 6000 if (client_profile == CLAUDE_CODE_OPENAI_PROFILE and tools) else 300
-            if len(tool_content) > tool_result_limit:
-                tool_content = tool_content[:tool_result_limit] + "...[truncated]"
+            tool_result_limit = 6000 if (client_profile == CLAUDE_CODE_OPENAI_PROFILE and tools) else 8000
+            tool_content = _compact_tool_result_body(tool_content, limit=tool_result_limit)
             line = f"[Tool Result]{(' id=' + tool_call_id) if tool_call_id else ''}\n{tool_content}\n[/Tool Result]"
             if used + len(line) + 2 > budget and history_parts:
                 break
@@ -705,7 +704,7 @@ def build_prompt_with_tools(system_prompt: str, messages: list, tools: list, *, 
         else:
             max_len = 600 if is_tool_result else max(1400, budget - used - len("Human: ") - 2)
         if len(text) > max_len:
-            text = text[:max_len] + "...[truncated]"
+            text = _compact_tool_result_body(text, limit=max_len) if is_tool_result else (text[:max_len] + "...[truncated]")
         is_tool_result_only_user_msg = role == "user" and not user_text_only.strip() and bool(text.strip())
         prefix = "" if is_tool_result_only_user_msg else {"user": "Human: ", "assistant": "Assistant: ", "system": "System: "}.get(role, "")
         line = text if is_tool_result_only_user_msg else f"{prefix}{text}"

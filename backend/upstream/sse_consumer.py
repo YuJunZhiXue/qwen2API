@@ -4,16 +4,31 @@ import logging
 log = logging.getLogger("qwen2api.sse")
 
 
-def _first_text(*values) -> str:
-    for value in values:
-        if isinstance(value, str) and value:
-            return value
+def _flatten_text(value) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "".join(_flatten_text(item) for item in value)
+    if isinstance(value, dict):
+        if "content" in value:
+            return _flatten_text(value.get("content"))
+        if "text" in value:
+            return _flatten_text(value.get("text"))
+        return "".join(_flatten_text(item) for item in value.values())
     return ""
 
 
-def _extract_reasoning(delta: dict) -> str:
+def _first_text(*values) -> str:
+    for value in values:
+        text = _flatten_text(value)
+        if text:
+            return text
+    return ""
+
+
+def _extract_reasoning(delta: dict) -> tuple[str, bool]:
     extra = delta.get("extra") if isinstance(delta.get("extra"), dict) else {}
-    return _first_text(
+    direct_reasoning = _first_text(
         delta.get("reasoning_content"),
         delta.get("reasoning"),
         delta.get("reasoning_text"),
@@ -25,6 +40,16 @@ def _extract_reasoning(delta: dict) -> str:
         extra.get("thinking"),
         extra.get("thoughts"),
     )
+    if direct_reasoning:
+        return direct_reasoning, False
+
+    snapshot_reasoning = _first_text(
+        extra.get("summary_thought"),
+        extra.get("summary_title"),
+    )
+    if snapshot_reasoning:
+        return snapshot_reasoning, True
+    return "", False
 
 
 def parse_sse_chunk(chunk: str) -> list[dict]:
@@ -48,7 +73,7 @@ def parse_sse_chunk(chunk: str) -> list[dict]:
             delta = evt["choices"][0].get("delta", {})
             phase = delta.get("phase", "answer")
             content = delta.get("content", "")
-            reasoning = _extract_reasoning(delta)
+            reasoning, reasoning_is_snapshot = _extract_reasoning(delta)
             if reasoning:
                 content = reasoning
                 phase = "thinking_summary" if phase == "answer" else phase
@@ -64,6 +89,7 @@ def parse_sse_chunk(chunk: str) -> list[dict]:
                     "content": content,
                     "status": delta.get("status", ""),
                     "extra": delta.get("extra", {}),
+                    "content_is_snapshot": reasoning_is_snapshot,
                 }
             )
     return parsed

@@ -150,6 +150,7 @@ Chat 请求可以显式传入：
 - `enable_thinking=true`：开启思考模式。
 - `enable_thinking=false`：关闭思考模式，优先更快返回。
 - 不传 `enable_thinking` 时，默认保持项目原有行为：开启思考。
+- 开启思考时，网关默认向上游请求详细思考内容，并透传到兼容协议的 reasoning/thinking 字段。
 - 选择 `*-thinking` 模型变体时，后端会强制开启思考，即使请求里传了 `enable_thinking=false`。
 - 图片、视频等非文本模式会自动关闭思考。
 
@@ -253,6 +254,7 @@ CONTEXT_UPLOAD_PARSE_TIMEOUT_SECONDS=60
 ```
 
 `ADMIN_KEY` 必须改成自己的强密码。
+如果你直接维护 `data/users.json`，可将某个用户的 `quota` 设为 `-1` 表示无限配额，`used_tokens` 会继续累计但不再触发 402。
 
 #### 3. 创建 `docker-compose.yml`
 
