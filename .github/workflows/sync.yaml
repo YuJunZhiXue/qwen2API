@@ -1,0 +1,43 @@
+name: Sync Fork with Upstream
+
+on:
+  schedule:
+    # Запуск каждый день в 00:00 по UTC. 
+    # Вы можете изменить расписание, используя синтаксис cron (например, '0 */6 * * *' для каждых 6 часов)
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Позволяет запустить синхронизацию вручную через вкладку Actions
+
+# Разрешения необходимы для того, чтобы GITHUB_TOKEN мог делать push в репозиторий
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout репозитория
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Загружаем всю историю коммитов для корректного слияния
+
+      - name: Настройка Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Добавление оригинального репозитория (upstream)
+        run: |
+          git remote add upstream https://github.com/ORIGINAL_OWNER/ORIGINAL_REPO.git
+
+      - name: Получение изменений из upstream
+        run: git fetch upstream
+
+      - name: Слияние изменений (Merge)
+        run: |
+          # Замените 'main' на имя вашей основной ветки, если она называется иначе (например, 'master')
+          git checkout main
+          # --no-edit автоматически принимает сообщение коммита слияния по умолчанию
+          git merge upstream/main --no-edit
+
+      - name: Отправка изменений в форк
+        run: git push origin main
