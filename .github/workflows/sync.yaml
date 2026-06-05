@@ -27,7 +27,7 @@ jobs:
 
       - name: Добавление оригинального репозитория (upstream)
         run: |
-          git remote add upstream https://github.com/ORIGINAL_OWNER/ORIGINAL_REPO.git
+          git remote add upstream https://github.com/YuJunZhiXue/qwen2API.git
 
       - name: Получение изменений из upstream
         run: git fetch upstream
