@@ -123,6 +123,7 @@ MODEL_MAP = {
     # DeepSeek
     "deepseek-chat":     "qwen3.6-plus",
     "deepseek-reasoner": "qwen3.6-plus",
+    "claude-opus-4-7":   "qwen3.6-plus",
 }
 
 def resolve_model(name: str) -> str:
