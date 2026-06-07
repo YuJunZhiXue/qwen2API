@@ -1,9 +1,10 @@
 import os
 import json
+import re
 from pathlib import Path
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
-from typing import Dict, Set
+from typing import Any, Iterable
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -68,23 +69,193 @@ class Settings(BaseSettings):
 
 API_KEYS_FILE = DATA_DIR / "api_keys.json"
 
-def load_api_keys() -> set:
+KEEPALIVE_MIN_INTERVAL = 5
+KEEPALIVE_MAX_INTERVAL = 86400
+KEEPALIVE_DEFAULT_INTERVAL = 60
+
+_NUMBERED_API_KEY_RE = re.compile(r"^QWEN_API_KEY_(\d+)$")
+_NUMBERED_ACCOUNT_RE = re.compile(r"^QWEN_ACCOUNT_(\d+)$")
+
+
+def _dedupe_nonempty(values: Iterable[Any]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = str(value or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
+
+
+def _split_key_values(value: str) -> list[str]:
+    return [item.strip() for item in re.split(r"[\s,;]+", value or "") if item.strip()]
+
+
+def _numbered_env_values(pattern: re.Pattern[str]) -> list[tuple[int, str, str]]:
+    values: list[tuple[int, str, str]] = []
+    for name, value in os.environ.items():
+        match = pattern.match(name)
+        if not match:
+            continue
+        values.append((int(match.group(1)), name, value))
+    values.sort(key=lambda item: (item[0], item[1]))
+    return values
+
+
+def load_env_api_keys() -> list[str]:
+    values: list[str] = []
+    for name in ("QWEN_API_KEY", "QWEN_API_KEYS", "API_KEYS"):
+        raw = os.getenv(name, "")
+        if raw:
+            values.extend(_split_key_values(raw))
+
+    for _, _, raw in _numbered_env_values(_NUMBERED_API_KEY_RE):
+        values.extend(_split_key_values(raw))
+
+    return _dedupe_nonempty(values)
+
+
+def load_api_keys() -> list[str]:
     if API_KEYS_FILE.exists():
         try:
             with open(API_KEYS_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                return set(data.get("keys", []))
+                keys = data.get("keys", [])
+                if isinstance(keys, str):
+                    return _dedupe_nonempty(_split_key_values(keys))
+                if isinstance(keys, list):
+                    return _dedupe_nonempty(keys)
         except Exception:
             pass
-    return set()
+    return []
 
-def save_api_keys(keys: set):
+
+ENV_API_KEYS = load_env_api_keys()
+MANAGED_API_KEYS = load_api_keys()
+API_KEYS: set[str] = set()
+
+
+def _sync_api_keys() -> None:
+    API_KEYS.clear()
+    API_KEYS.update(ENV_API_KEYS)
+    API_KEYS.update(MANAGED_API_KEYS)
+
+
+def save_api_keys(keys: Iterable[str]) -> None:
+    global MANAGED_API_KEYS
+    env_keys = set(ENV_API_KEYS)
+    MANAGED_API_KEYS = _dedupe_nonempty(key for key in keys if str(key or "").strip() not in env_keys)
     API_KEYS_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(API_KEYS_FILE, "w", encoding="utf-8") as f:
-        json.dump({"keys": list(keys)}, f, indent=2)
+        json.dump({"keys": MANAGED_API_KEYS}, f, indent=2)
+    _sync_api_keys()
 
-# 在内存中存储管理的 API Keys
-API_KEYS = load_api_keys()
+
+def add_api_key(key: str) -> bool:
+    key = str(key or "").strip()
+    if not key or key in API_KEYS:
+        return False
+    MANAGED_API_KEYS.append(key)
+    save_api_keys(MANAGED_API_KEYS)
+    return True
+
+
+def remove_api_key(key: str) -> str:
+    key = str(key or "").strip()
+    if key in ENV_API_KEYS:
+        return "env"
+    if key in MANAGED_API_KEYS:
+        save_api_keys(item for item in MANAGED_API_KEYS if item != key)
+        return "removed"
+    return "missing"
+
+
+def list_api_key_items() -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    env_keys = set(ENV_API_KEYS)
+    for key in ENV_API_KEYS:
+        items.append({"key": key, "source": "env", "label": "环境变量注入 Key"})
+    for key in MANAGED_API_KEYS:
+        if key in env_keys:
+            continue
+        items.append({"key": key, "source": "managed", "label": "面板创建 Key"})
+    return items
+
+
+def load_env_accounts() -> list[dict[str, Any]]:
+    accounts: list[dict[str, Any]] = []
+    for index, name, raw in _numbered_env_values(_NUMBERED_ACCOUNT_RE):
+        parts = str(raw or "").split(";", 2)
+        token = parts[0].strip() if parts else ""
+        if not token:
+            continue
+        email = parts[1].strip() if len(parts) >= 2 and parts[1].strip() else f"env_{index}@qwen"
+        password = parts[2].strip() if len(parts) >= 3 else ""
+        accounts.append({
+            "email": email,
+            "password": password,
+            "token": token,
+            "cookies": "",
+            "username": "",
+            "source": "env",
+            "env_name": name,
+        })
+    return accounts
+
+
+def normalize_keepalive_interval(value: Any) -> int:
+    try:
+        interval = int(value)
+    except (TypeError, ValueError):
+        return KEEPALIVE_DEFAULT_INTERVAL
+    return min(KEEPALIVE_MAX_INTERVAL, max(KEEPALIVE_MIN_INTERVAL, interval))
+
+
+def keepalive_env_locked_keys() -> set[str]:
+    locked: set[str] = set()
+    if os.getenv("KEEPALIVE_URL") is not None:
+        locked.add("keepalive_url")
+    if os.getenv("KEEPALIVE_INTERVAL") is not None:
+        locked.add("keepalive_interval")
+    return locked
+
+
+async def get_keepalive_config(config_db) -> dict[str, Any]:
+    data = await config_db.get()
+    if not isinstance(data, dict):
+        data = {}
+
+    env_url = os.getenv("KEEPALIVE_URL")
+    env_interval = os.getenv("KEEPALIVE_INTERVAL")
+
+    url = env_url if env_url is not None else data.get("keepalive_url", "")
+    interval = env_interval if env_interval is not None else data.get("keepalive_interval", KEEPALIVE_DEFAULT_INTERVAL)
+
+    return {
+        "keepalive_url": str(url or "").strip(),
+        "keepalive_interval": normalize_keepalive_interval(interval),
+        "env_locked": sorted(keepalive_env_locked_keys()),
+    }
+
+
+async def update_keepalive_config(config_db, values: dict[str, Any]) -> dict[str, Any]:
+    data = await config_db.get()
+    if not isinstance(data, dict):
+        data = {}
+
+    locked = keepalive_env_locked_keys()
+    if "keepalive_url" in values and "keepalive_url" not in locked:
+        data["keepalive_url"] = str(values.get("keepalive_url") or "").strip()
+    if "keepalive_interval" in values and "keepalive_interval" not in locked:
+        data["keepalive_interval"] = normalize_keepalive_interval(values.get("keepalive_interval"))
+
+    await config_db.save(data)
+    return await get_keepalive_config(config_db)
+
+
+_sync_api_keys()
 
 VERSION = "2.0.0"
 

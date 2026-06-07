@@ -8,7 +8,7 @@ import time
 from typing import Optional
 
 from backend.core.database import AsyncJsonDB
-from backend.core.config import settings
+from backend.core.config import load_env_accounts, settings
 
 log = logging.getLogger("qwen2api.accounts.core")
 
@@ -25,6 +25,8 @@ class Account:
         activation_pending=False,
         status_code="",
         last_error="",
+        source="file",
+        env_name="",
         **kwargs,
     ):
         self.email = email
@@ -40,6 +42,8 @@ class Account:
         self.healing = False
         self.status_code = status_code or ("pending_activation" if activation_pending else "valid")
         self.last_error = last_error or ""
+        self.source = source or "file"
+        self.env_name = env_name or ""
         self.last_request_started = float(kwargs.get("last_request_started", 0.0) or 0.0)
         self.last_request_finished = float(kwargs.get("last_request_finished", 0.0) or 0.0)
         self.consecutive_failures = int(kwargs.get("consecutive_failures", 0) or 0)
@@ -91,6 +95,8 @@ class Account:
             "activation_pending": self.activation_pending,
             "status_code": self.status_code,
             "last_error": self.last_error,
+            "source": self.source,
+            "env_name": self.env_name,
             "last_request_started": self.last_request_started,
             "last_request_finished": self.last_request_finished,
             "consecutive_failures": self.consecutive_failures,
@@ -137,8 +143,13 @@ class AccountPool:
     async def load(self):
         """加载账号并初始化并发参数"""
         data = await self.db.load()
-        self.accounts = [Account(**d) for d in data] if isinstance(data, list) else []
+        file_accounts = [Account(**d) for d in data] if isinstance(data, list) else []
+        env_accounts = [Account(**d) for d in load_env_accounts()]
+        env_emails = {account.email for account in env_accounts}
+        self.accounts = env_accounts + [account for account in file_accounts if account.email not in env_emails]
         self._reset_concurrency_limits()
+        if env_accounts:
+            log.info(f"Loaded {len(env_accounts)} upstream account(s) from environment variables")
         log.info(f"Loaded {len(self.accounts)} upstream account(s)")
 
     def _reset_concurrency_limits(self):
@@ -270,7 +281,7 @@ class AccountPool:
         return now + 0.5
 
     async def save(self):
-        await self.db.save([a.to_dict() for a in self.accounts])
+        await self.db.save([a.to_dict() for a in self.accounts if a.source != "env"])
 
     async def add(self, account: Account):
         async with self._lock:

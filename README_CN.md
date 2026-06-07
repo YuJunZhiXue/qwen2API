@@ -229,6 +229,12 @@ cd qwen2api
 
 ```env
 ADMIN_KEY=change-me-now
+# QWEN_API_KEY=sk-your-env-key
+# QWEN_API_KEYS=sk-key-1,sk-key-2
+# QWEN_API_KEY_1=sk-numbered-key
+# QWEN_ACCOUNT_1=your-qwen-token;optional-email;optional-password
+# KEEPALIVE_URL=https://your-app.onrender.com/keepalive
+# KEEPALIVE_INTERVAL=60
 PORT=7860
 WORKERS=1
 LOG_LEVEL=INFO
@@ -242,6 +248,7 @@ RATE_LIMIT_MAX_COOLDOWN=3600
 ACCOUNTS_FILE=/workspace/data/accounts.json
 USERS_FILE=/workspace/data/users.json
 CAPTURES_FILE=/workspace/data/captures.json
+CONFIG_FILE=/workspace/data/config.json
 CONTEXT_GENERATED_DIR=/workspace/data/context_files
 CONTEXT_CACHE_FILE=/workspace/data/context_cache.json
 UPLOADED_FILES_FILE=/workspace/data/uploaded_files.json
@@ -311,9 +318,9 @@ curl http://127.0.0.1:7860/healthz
 
 建议初始化顺序：
 
-1. 在账号管理中添加或注册千问账号。
+1. 在账号管理中添加或注册千问账号，或通过 `QWEN_ACCOUNT_1=token;可选邮箱;可选密码` 注入。
 2. 确认账号状态可用。
-3. 在 API Key 管理中创建客户端调用用的 API Key。
+3. 在 API Key 管理中创建客户端调用用的 API Key，或通过 `QWEN_API_KEY` / `QWEN_API_KEYS` / `QWEN_API_KEY_1` 注入。
 4. 在聊天测试页调用一次普通文本请求。
 5. 如需图片生成，在图片页面测试一次生图。
 
@@ -433,6 +440,10 @@ python start.py
 | 变量 | 推荐值 / 默认值 | 说明 |
 |---|---|---|
 | `ADMIN_KEY` | `change-me-now` | 管理台登录密钥，生产环境必须修改。 |
+| `QWEN_API_KEY` / `QWEN_API_KEYS` / `QWEN_API_KEY_1` | 留空 | 从环境变量注入客户端 API Key；多个 Key 可用逗号、分号、空白分隔，或使用编号变量。面板会把环境变量 Key 排在前面并标注来源。 |
+| `QWEN_ACCOUNT_1` / `QWEN_ACCOUNT_2` | 留空 | 从环境变量注入千问账号，格式为 `token;可选邮箱;可选密码`；Token 必填，邮箱和密码可留空。 |
+| `KEEPALIVE_URL` | 留空 | 保活 URL。配置后服务会定期向该 URL 发送 GET 请求；留空禁用。设置为环境变量时会锁定面板同名配置。 |
+| `KEEPALIVE_INTERVAL` | `60` | 保活间隔秒数，范围 `5` - `86400`。设置为环境变量时会锁定面板同名配置。 |
 | `PORT` | `7860` | 容器内服务端口。Compose 默认映射到宿主机 `7860`。 |
 | `HOST_PORT` | `7860` | 仅 Compose 使用，控制宿主机端口映射。 |
 | `QWEN2API_IMAGE` | `yujunzhixue/qwen2api:latest` | 仅 Compose 使用，覆盖要拉取的镜像。 |
@@ -449,6 +460,7 @@ python start.py
 | `ACCOUNTS_FILE` | `/workspace/data/accounts.json` | 千问账号数据文件路径。 |
 | `USERS_FILE` | `/workspace/data/users.json` | API Key / 用户数据文件路径。 |
 | `CAPTURES_FILE` | `/workspace/data/captures.json` | 调试抓取数据文件路径。 |
+| `CONFIG_FILE` | `/workspace/data/config.json` | 运行时配置文件路径，用于保存面板里的保活配置。 |
 | `CONTEXT_GENERATED_DIR` | `/workspace/data/context_files` | 上下文附件与生成文件目录。 |
 | `CONTEXT_CACHE_FILE` | `/workspace/data/context_cache.json` | 上下文缓存数据文件。 |
 | `UPLOADED_FILES_FILE` | `/workspace/data/uploaded_files.json` | 上传文件元数据文件。 |
@@ -461,6 +473,7 @@ python start.py
 兼容说明：
 
 - `MAX_INFLIGHT` 是旧版兼容别名，不建议继续使用。
+- `QWEN_ACCOUNT_1=token` 是最简账号注入写法；如果不填邮箱但要填密码，可以写 `QWEN_ACCOUNT_1=token;;password`。
 
 ## WebUI 管理台
 
@@ -469,10 +482,10 @@ python start.py
 主要页面：
 
 - 账号管理：添加、注册、激活、验证和删除千问账号。
-- API Key 管理：创建和删除客户端调用用的 Key。
+- API Key 管理：创建、删除客户端调用用的 Key，并显示环境变量注入 Key。
 - 聊天测试：选择模型、切换思考/快速模式、测试流式与非流式请求。
 - 图片生成：测试图片生成接口和尺寸比例。
-- 系统设置：查看运行状态与基础配置。
+- 系统设置：查看运行状态、基础配置与保活配置。
 
 数据持久化依赖 `data/` 目录。Docker 部署时必须保留：
 
@@ -688,4 +701,3 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 - 使用者应自行评估所在地区法律法规、上游服务条款、账号合规性与数据安全要求。
 - 因使用本项目导致的账号封禁、请求受限、数据丢失、服务中断或其他风险，由使用者自行承担。
 - 如果权利人认为本项目内容侵犯其合法权益，请通过仓库 Issue 提出，维护者将在核实后处理。
-

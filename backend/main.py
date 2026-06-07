@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -26,6 +26,7 @@ import backend.api.models as models
 from backend.api import admin, v1_chat, probes, anthropic, gemini, embeddings, images, videos, files_api, responses
 from backend.services.garbage_collector import garbage_collect_chats
 from backend.services.context_cleanup import context_cleanup_loop
+from backend.services.keepalive import KeepAliveService
 
 configure_logging(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
 log = logging.getLogger("qwen2api")
@@ -58,6 +59,7 @@ async def lifespan(app: FastAPI):
         app.state.accounts_db = AsyncJsonDB(settings.ACCOUNTS_FILE, default_data=[])
         app.state.users_db = AsyncJsonDB(settings.USERS_FILE, default_data=[])
         app.state.captures_db = AsyncJsonDB(settings.CAPTURES_FILE, default_data=[])
+        app.state.config_db = AsyncJsonDB(settings.CONFIG_FILE, default_data={})
         app.state.session_affinity_db = AsyncJsonDB(settings.CONTEXT_AFFINITY_FILE, default_data=[])
         app.state.context_cache_db = AsyncJsonDB(settings.CONTEXT_CACHE_FILE, default_data=[])
         app.state.uploaded_files_db = AsyncJsonDB(settings.UPLOADED_FILES_FILE, default_data=[])
@@ -76,6 +78,7 @@ async def lifespan(app: FastAPI):
         # 加载账号并启动后台清理任务
         await app.state.account_pool.load()
         await app.state.file_store.load()
+        await app.state.config_db.load()
         await app.state.session_affinity.load()
         await app.state.upstream_file_cache.load()
         asyncio.create_task(garbage_collect_chats(app))
@@ -93,6 +96,9 @@ async def lifespan(app: FastAPI):
         app.state.qwen_executor.chat_id_pool = app.state.chat_id_pool  # 让 executor 直接访问
         await app.state.chat_id_pool.start()
 
+        app.state.keepalive_service = KeepAliveService(app.state.config_db)
+        await app.state.keepalive_service.start()
+
     yield
 
     with request_context(surface="shutdown"):
@@ -101,6 +107,9 @@ async def lifespan(app: FastAPI):
         pool = getattr(app.state, "chat_id_pool", None)
         if pool:
             await pool.stop()
+        keepalive_service = getattr(app.state, "keepalive_service", None)
+        if keepalive_service:
+            await keepalive_service.stop()
         # 关闭 HTTP 连接池
         await app.state.qwen_client._http_client.aclose()
         log.info("HTTP 连接池已关闭")
@@ -135,6 +144,14 @@ async def root():
         "docs": "/docs",
         "version": "2.0.0"
     }
+
+@app.get("/keepalive", tags=["System"])
+async def keepalive_probe():
+    return {"ok": True, "service": "qwen2API"}
+
+@app.head("/keepalive", tags=["System"])
+async def keepalive_probe_head():
+    return Response(status_code=204)
 
 # 托管前端构建产物
 FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")

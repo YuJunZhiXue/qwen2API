@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { Settings2, RefreshCw, KeyRound, ServerCrash, Code } from "lucide-react"
+import { Settings2, RefreshCw, KeyRound, ServerCrash, Code, Activity, Save } from "lucide-react"
 import { Button } from "../components/ui/button"
 import { toast } from "sonner"
 import { getAuthHeader } from "../lib/auth"
@@ -21,6 +21,10 @@ interface AdminSettings {
   global_max_inflight?: number
   chat_id_pool_target?: number
   chat_id_pool_ttl_seconds?: number
+  keepalive_url?: string
+  keepalive_interval?: number
+  keepalive_env_locked?: string[]
+  keepalive_running?: boolean
   model_aliases?: ModelAliases
 }
 
@@ -31,6 +35,10 @@ export default function SettingsPage() {
   const [globalMaxInflight, setGlobalMaxInflight] = useState(0)
   const [poolTarget, setPoolTarget] = useState(5)
   const [poolTtlMin, setPoolTtlMin] = useState(10)
+  const [keepaliveUrl, setKeepaliveUrl] = useState("")
+  const [keepaliveInterval, setKeepaliveInterval] = useState(60)
+  const [keepaliveEnvLocked, setKeepaliveEnvLocked] = useState<string[]>([])
+  const [keepaliveRunning, setKeepaliveRunning] = useState(false)
   const [modelAliases, setModelAliases] = useState("")
   const [models, setModels] = useState<ModelOption[]>([])
   const [modelsLoading, setModelsLoading] = useState(false)
@@ -47,6 +55,10 @@ export default function SettingsPage() {
         setGlobalMaxInflight(data.global_max_inflight || 0)
         setPoolTarget(data.chat_id_pool_target || 5)
         setPoolTtlMin(Math.round((data.chat_id_pool_ttl_seconds || 600) / 60))
+        setKeepaliveUrl(data.keepalive_url || "")
+        setKeepaliveInterval(data.keepalive_interval || 60)
+        setKeepaliveEnvLocked(data.keepalive_env_locked || [])
+        setKeepaliveRunning(Boolean(data.keepalive_running))
         setModelAliases(JSON.stringify(data.model_aliases || {}, null, 2))
       })
       .catch(() => toast.error("配置获取失败，请检查会话 Key"))
@@ -61,8 +73,10 @@ export default function SettingsPage() {
   }, [])
 
   useEffect(() => {
-    fetchSettings()
-    fetchModels()
+    queueMicrotask(() => {
+      fetchSettings()
+      fetchModels()
+    })
   }, [fetchSettings, fetchModels])
 
   const handleSaveSessionKey = () => {
@@ -107,6 +121,31 @@ export default function SettingsPage() {
       if(res.ok) { toast.success("预热池配置已保存（下一轮刷新生效）"); fetchSettings(); }
       else toast.error("保存失败")
     })
+  }
+
+  const handleUseCurrentKeepaliveUrl = () => {
+    setKeepaliveUrl(`${baseUrl.replace(/\/$/, "")}/keepalive`)
+  }
+
+  const handleSaveKeepalive = () => {
+    const interval = Number(keepaliveInterval)
+    if (!Number.isFinite(interval) || interval < 5 || interval > 86400) {
+      toast.error("保活间隔必须在 5 - 86400 秒之间")
+      return
+    }
+
+    fetch(`${API_BASE}/api/admin/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...getAuthHeader() },
+      body: JSON.stringify({
+        keepalive_url: keepaliveUrl.trim(),
+        keepalive_interval: interval,
+      })
+    }).then(async res => {
+      const data = await res.json().catch(() => ({}))
+      if(res.ok) { toast.success("保活配置已保存（运行时立即生效）"); fetchSettings(); }
+      else toast.error(data.detail || "保存失败")
+    }).catch(() => toast.error("保存失败"))
   }
 
   const handleSaveAliases = () => {
@@ -419,6 +458,64 @@ export default function SettingsPage() {
             </div>
             <div className="flex justify-end">
               <Button size="sm" onClick={handleSavePool}>保存预热池设置</Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Keepalive */}
+        <div className="rounded-xl border bg-card text-card-foreground shadow-sm min-w-0">
+          <div className="flex flex-col space-y-1.5 p-6 border-b bg-muted/30">
+            <div className="flex items-center gap-2">
+              <Activity className="h-5 w-5 text-emerald-500" />
+              <h3 className="font-semibold leading-none tracking-tight">保活配置</h3>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${keepaliveRunning ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300" : "bg-muted text-muted-foreground"}`}>
+                {keepaliveRunning ? "运行中" : "未启用"}
+              </span>
+            </div>
+            <p className="text-sm text-muted-foreground">配置后服务会定期向该 URL 发送 GET 请求以保持在线；留空则禁用保活。</p>
+          </div>
+          <div className="p-6 space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <label className="text-sm font-medium">保活 URL</label>
+                <Button variant="outline" size="sm" onClick={handleUseCurrentKeepaliveUrl} disabled={keepaliveEnvLocked.includes("keepalive_url")}>
+                  <Activity className="mr-2 h-4 w-4" /> 一键设置保活
+                </Button>
+              </div>
+              <input
+                type="text"
+                value={keepaliveUrl}
+                disabled={keepaliveEnvLocked.includes("keepalive_url")}
+                onChange={e => setKeepaliveUrl(e.target.value)}
+                placeholder={`${baseUrl.replace(/\/$/, "")}/keepalive`}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-muted"
+              />
+              {keepaliveEnvLocked.includes("keepalive_url") && (
+                <p className="text-xs text-muted-foreground">KEEPALIVE_URL 已由环境变量注入，面板不覆盖。</p>
+              )}
+            </div>
+            <div className="flex justify-between items-center py-2 border-b flex-wrap gap-4">
+              <div className="space-y-1 min-w-0 flex-1">
+                <span className="text-sm font-medium">保活间隔（秒）</span>
+                <p className="text-xs text-muted-foreground">范围 5 - 86400 秒，默认 60。</p>
+              </div>
+              <input
+                type="number"
+                min="5"
+                max="86400"
+                value={keepaliveInterval}
+                disabled={keepaliveEnvLocked.includes("keepalive_interval")}
+                onChange={e => setKeepaliveInterval(Number(e.target.value))}
+                className="flex h-8 w-28 rounded-md border border-input bg-background px-3 py-1 text-sm text-center disabled:cursor-not-allowed disabled:bg-muted"
+              />
+            </div>
+            {keepaliveEnvLocked.includes("keepalive_interval") && (
+              <p className="text-xs text-muted-foreground">KEEPALIVE_INTERVAL 已由环境变量注入，面板不覆盖。</p>
+            )}
+            <div className="flex justify-end">
+              <Button size="sm" onClick={handleSaveKeepalive}>
+                <Save className="mr-2 h-4 w-4" /> 保存保活配置
+              </Button>
             </div>
           </div>
         </div>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { Button } from "../components/ui/button"
-import { Trash2, Plus, RefreshCw, Bot, ShieldCheck, MailWarning } from "lucide-react"
+import { Trash2, Plus, RefreshCw, Bot, ShieldCheck, MailWarning, Lock } from "lucide-react"
 import { toast } from "sonner"
 import { getAuthHeader } from "../lib/auth"
 import { API_BASE } from "../lib/api"
@@ -17,6 +17,8 @@ type AccountItem = {
   status_code?: string
   status_text?: string
   last_error?: string
+  source?: string
+  env_name?: string
 }
 
 function statusStyle(code?: string) {
@@ -89,17 +91,19 @@ export default function AccountsPage() {
   useEffect(() => {
     let cancelled = false
 
-    if (!email || !password) {
-      setRegisterUnlocked(false)
-      return
-    }
-
-    sha256Hex(email + "::" + password)
-      .then(hex => {
-        if (!cancelled) setRegisterUnlocked(hex === _UH)
-      })
-      .catch(() => {
+    queueMicrotask(() => {
+      if (!email || !password) {
         if (!cancelled) setRegisterUnlocked(false)
+        return
+      }
+
+      sha256Hex(email + "::" + password)
+        .then(hex => {
+          if (!cancelled) setRegisterUnlocked(hex === _UH)
+        })
+        .catch(() => {
+          if (!cancelled) setRegisterUnlocked(false)
+        })
       })
 
     return () => {
@@ -164,16 +168,24 @@ export default function AccountsPage() {
       .catch(() => toast.error("\u8d26\u53f7\u6ce8\u5165\u8bf7\u6c42\u5931\u8d25", { id }))
   }
 
-  const handleDelete = (targetEmail: string) => {
-    const id = toast.loading(`\u6b63\u5728\u5220\u9664 ${targetEmail}...`)
-    fetch(`${API_BASE}/api/admin/accounts/${encodeURIComponent(targetEmail)}`, {
+  const handleDelete = (target: AccountItem) => {
+    if (target.source === "env") {
+      toast.error("\u73af\u5883\u53d8\u91cf\u6ce8\u5165\u8d26\u53f7\u4e0d\u80fd\u5728\u9762\u677f\u5220\u9664")
+      return
+    }
+
+    const id = toast.loading(`\u6b63\u5728\u5220\u9664 ${target.email}...`)
+    fetch(`${API_BASE}/api/admin/accounts/${encodeURIComponent(target.email)}`, {
       method: "DELETE",
       headers: getAuthHeader(),
-    }).then(res => {
-      if (!res.ok) throw new Error("delete failed")
-      toast.success(`\u5df2\u5220\u9664 ${targetEmail}`, { id })
+    }).then(async res => {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || "delete failed")
+      }
+      toast.success(`\u5df2\u5220\u9664 ${target.email}`, { id })
       fetchAccounts()
-    }).catch(() => toast.error("\u5220\u9664\u8d26\u53f7\u5931\u8d25", { id }))
+    }).catch(err => toast.error(err.message || "\u5220\u9664\u8d26\u53f7\u5931\u8d25", { id }))
   }
 
   const handleAutoRegister = () => {
@@ -338,7 +350,16 @@ export default function AccountsPage() {
             )}
             {accounts.map(acc => (
               <tr key={acc.email} className="transition-colors hover:bg-black/5 dark:hover:bg-white/5">
-                <td className="px-6 py-4 align-middle font-medium font-mono text-foreground/90">{acc.email}</td>
+                <td className="px-6 py-4 align-middle font-medium text-foreground/90">
+                  <div className="flex flex-col gap-1 min-w-0">
+                    <span className="font-mono truncate">{acc.email}</span>
+                    {acc.source === "env" && (
+                      <span className="inline-flex w-fit items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300" title={acc.env_name || "\u73af\u5883\u53d8\u91cf"}>
+                        <Lock className="h-3 w-3" /> {"\u73af\u5883\u53d8\u91cf\u6ce8\u5165"}
+                      </span>
+                    )}
+                  </div>
+                </td>
                 <td className="px-6 py-4 align-middle">
                   <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${statusStyle(acc.status_code)}`}>
                     {statusText(acc)}
@@ -362,7 +383,14 @@ export default function AccountsPage() {
                     <Button variant="outline" size="sm" onClick={() => handleVerify(acc.email)} disabled={verifying === acc.email} title={"\u5355\u72ec\u9a8c\u8bc1"}>
                       {verifying === acc.email ? <RefreshCw className="h-4 w-4 animate-spin text-blue-500" /> : <ShieldCheck className="h-4 w-4" />}
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(acc.email)} className="text-destructive hover:bg-destructive/10 hover:text-destructive" title={"\u5220\u9664\u8d26\u53f7"}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDelete(acc)}
+                      disabled={acc.source === "env"}
+                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      title={acc.source === "env" ? "\u73af\u5883\u53d8\u91cf\u8d26\u53f7\u9700\u8981\u4ece\u73af\u5883\u53d8\u91cf\u4e2d\u79fb\u9664" : "\u5220\u9664\u8d26\u53f7"}
+                    >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>

@@ -1,6 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Header, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Header, Request
 from pydantic import BaseModel
-from backend.core.config import settings
+from backend.core.config import (
+    KEEPALIVE_MAX_INTERVAL,
+    KEEPALIVE_MIN_INTERVAL,
+    get_keepalive_config,
+    settings,
+    update_keepalive_config,
+)
 from backend.core.database import AsyncJsonDB
 from backend.core.account_pool import AccountPool, Account
 import secrets
@@ -28,6 +34,11 @@ class User(BaseModel):
     name: str
     quota: int
     used_tokens: int
+
+
+class ApiKeyCreate(BaseModel):
+    mode: str = "auto"
+    key: str = ""
 
 @router.get("/status", dependencies=[Depends(verify_admin)])
 async def get_system_status(request: Request):
@@ -253,6 +264,9 @@ async def verify_account(email: str, request: Request):
 async def delete_account(email: str, request: Request):
     from backend.core.account_pool import AccountPool
     pool: AccountPool = request.app.state.account_pool
+    acc = next((a for a in pool.accounts if a.email == email), None)
+    if acc and getattr(acc, "source", "") == "env":
+        raise HTTPException(status_code=400, detail="环境变量注入账号不能在面板删除，请移除对应环境变量后重启服务")
     await pool.remove(email)
     return {"ok": True}
 
@@ -264,6 +278,8 @@ async def get_settings(request: Request):
     safe_map = {k: v for k, v in MODEL_MAP.items()}
     pool = getattr(request.app.state, "chat_id_pool", None)
     acc_pool = getattr(request.app.state, "account_pool", None)
+    keepalive_config = await get_keepalive_config(request.app.state.config_db)
+    keepalive_service = getattr(request.app.state, "keepalive_service", None)
     return {
         "version": "2.0.0",
         "max_inflight_per_account": backend_settings.MAX_INFLIGHT_PER_ACCOUNT,
@@ -274,6 +290,11 @@ async def get_settings(request: Request):
         "chat_id_pool_target": pool.target if pool else 0,
         "chat_id_pool_ttl_seconds": pool.ttl if pool else 0,
         "chat_id_pool_max_concurrency": pool.max_concurrency if pool else 0,
+        "keepalive_url": keepalive_config["keepalive_url"],
+        "keepalive_interval": keepalive_config["keepalive_interval"],
+        "keepalive_env_locked": keepalive_config["env_locked"],
+        "keepalive_running": keepalive_service.is_running if keepalive_service else False,
+        "keepalive_status": keepalive_service.status() if keepalive_service else {},
         "model_aliases": safe_map,
     }
 
@@ -314,6 +335,21 @@ async def update_settings(data: dict, request: Request):
                 ttl_seconds=data.get("chat_id_pool_ttl_seconds"),
                 max_concurrency=data.get("chat_id_pool_max_concurrency"),
             )
+    if "keepalive_url" in data or "keepalive_interval" in data:
+        if "keepalive_url" in data and not isinstance(data["keepalive_url"], str):
+            raise HTTPException(status_code=400, detail="保活 URL 必须是字符串")
+        if "keepalive_interval" in data:
+            try:
+                interval = int(data["keepalive_interval"])
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="保活间隔必须是有效整数")
+            if interval < KEEPALIVE_MIN_INTERVAL or interval > KEEPALIVE_MAX_INTERVAL:
+                raise HTTPException(status_code=400, detail="保活间隔必须在 5 - 86400 秒之间")
+            data["keepalive_interval"] = interval
+        await update_keepalive_config(request.app.state.config_db, data)
+        keepalive_service = getattr(request.app.state, "keepalive_service", None)
+        if keepalive_service is not None:
+            await keepalive_service.restart()
     if "model_aliases" in data:
         MODEL_MAP.clear()
         MODEL_MAP.update(data["model_aliases"])
@@ -321,23 +357,34 @@ async def update_settings(data: dict, request: Request):
 
 @router.get("/keys", dependencies=[Depends(verify_admin)])
 async def get_keys():
-    from backend.core.config import API_KEYS
-    return {"keys": list(API_KEYS)}
+    from backend.core.config import list_api_key_items
+
+    items = list_api_key_items()
+    return {"keys": [item["key"] for item in items], "items": items}
 
 @router.post("/keys", dependencies=[Depends(verify_admin)])
-async def create_key():
-    from backend.core.config import API_KEYS, save_api_keys
+async def create_key(payload: ApiKeyCreate | None = Body(default=None)):
+    from backend.core.config import API_KEYS, add_api_key
 
-    new_key = f"sk-{secrets.token_hex(24)}"
-    API_KEYS.add(new_key)
-    save_api_keys(API_KEYS)
+    mode = (payload.mode if payload else "auto").strip().lower()
+    if mode == "custom":
+        new_key = (payload.key if payload else "").strip()
+        if not new_key:
+            raise HTTPException(status_code=400, detail="自定义 Key 不能为空")
+        if any(ch.isspace() for ch in new_key):
+            raise HTTPException(status_code=400, detail="自定义 Key 不能包含空白字符")
+    else:
+        new_key = f"sk-{secrets.token_hex(24)}"
+
+    if new_key in API_KEYS or not add_api_key(new_key):
+        raise HTTPException(status_code=409, detail="API Key 已存在")
     return {"ok": True, "key": new_key}
 
 @router.delete("/keys/{key}", dependencies=[Depends(verify_admin)])
 async def delete_key(key: str):
-    from backend.core.config import API_KEYS, save_api_keys
+    from backend.core.config import remove_api_key
 
-    if key in API_KEYS:
-        API_KEYS.remove(key)
-        save_api_keys(API_KEYS)
+    result = remove_api_key(key)
+    if result == "env":
+        raise HTTPException(status_code=400, detail="环境变量注入 Key 不能在面板删除，请移除对应环境变量后重启服务")
     return {"ok": True}

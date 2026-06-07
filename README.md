@@ -228,6 +228,12 @@ cd qwen2api
 
 ```env
 ADMIN_KEY=change-me-now
+# QWEN_API_KEY=sk-your-env-key
+# QWEN_API_KEYS=sk-key-1,sk-key-2
+# QWEN_API_KEY_1=sk-numbered-key
+# QWEN_ACCOUNT_1=your-qwen-token;optional-email;optional-password
+# KEEPALIVE_URL=https://your-app.onrender.com/keepalive
+# KEEPALIVE_INTERVAL=60
 PORT=7860
 WORKERS=1
 LOG_LEVEL=INFO
@@ -241,6 +247,7 @@ RATE_LIMIT_MAX_COOLDOWN=3600
 ACCOUNTS_FILE=/workspace/data/accounts.json
 USERS_FILE=/workspace/data/users.json
 CAPTURES_FILE=/workspace/data/captures.json
+CONFIG_FILE=/workspace/data/config.json
 CONTEXT_GENERATED_DIR=/workspace/data/context_files
 CONTEXT_CACHE_FILE=/workspace/data/context_cache.json
 UPLOADED_FILES_FILE=/workspace/data/uploaded_files.json
@@ -310,9 +317,9 @@ Open `http://YOUR_SERVER_IP:7860/`, and log in to the management console using t
 
 Recommended initialization order:
 
-1. Add or register Qwen accounts in account management.
+1. Add or register Qwen accounts in account management, or inject them with `QWEN_ACCOUNT_1=token;optional-email;optional-password`.
 2. Confirm account status is available.
-3. Create an API key for client calls in API key management.
+3. Create an API key for client calls in API key management, or inject it with `QWEN_API_KEY` / `QWEN_API_KEYS` / `QWEN_API_KEY_1`.
 4. Make one ordinary text request on the chat test page.
 5. If image generation is needed, test image generation on the image page.
 
@@ -432,6 +439,10 @@ The project provides `.env.example`. It is recommended to copy it to `.env` befo
 | Variable | Recommended Value / Default | Description |
 |---|---|---|
 | `ADMIN_KEY` | `change-me-now` | Management console login key. Must be changed in production environments. |
+| `QWEN_API_KEY` / `QWEN_API_KEYS` / `QWEN_API_KEY_1` | Empty | Inject client API keys from environment variables. Multiple keys can be separated by commas, semicolons, or whitespace, or provided with numbered variables. The WebUI lists environment keys first and labels their source. |
+| `QWEN_ACCOUNT_1` / `QWEN_ACCOUNT_2` | Empty | Inject Qwen accounts from environment variables. Format: `token;optional-email;optional-password`; token is required, email and password are optional. |
+| `KEEPALIVE_URL` | Empty | Keepalive URL. When set, the service periodically sends GET requests to this URL; empty disables keepalive. Environment variables lock the same WebUI setting. |
+| `KEEPALIVE_INTERVAL` | `60` | Keepalive interval in seconds, range `5` - `86400`. Environment variables lock the same WebUI setting. |
 | `PORT` | `7860` | Service port inside the container. Compose maps to host port `7860` by default. |
 | `HOST_PORT` | `7860` | Compose-only; controls host port mapping. |
 | `QWEN2API_IMAGE` | `yujunzhixue/qwen2api:latest` | Compose-only; overrides the image to pull. |
@@ -448,6 +459,7 @@ The project provides `.env.example`. It is recommended to copy it to `.env` befo
 | `ACCOUNTS_FILE` | `/workspace/data/accounts.json` | Qwen account data file path. |
 | `USERS_FILE` | `/workspace/data/users.json` | API key / user data file path. |
 | `CAPTURES_FILE` | `/workspace/data/captures.json` | Debug capture data file path. |
+| `CONFIG_FILE` | `/workspace/data/config.json` | Runtime config file path, used by WebUI keepalive settings. |
 | `CONTEXT_GENERATED_DIR` | `/workspace/data/context_files` | Context attachment and generated file directory. |
 | `CONTEXT_CACHE_FILE` | `/workspace/data/context_cache.json` | Context cache data file. |
 | `UPLOADED_FILES_FILE` | `/workspace/data/uploaded_files.json` | Uploaded file metadata file. |
@@ -460,6 +472,7 @@ The project provides `.env.example`. It is recommended to copy it to `.env` befo
 Compatibility note:
 
 - `MAX_INFLIGHT` is a legacy compatibility alias and is not recommended for continued use.
+- `QWEN_ACCOUNT_1=token` is the simplest account injection form. If email is omitted but password is provided, use `QWEN_ACCOUNT_1=token;;password`.
 
 ## WebUI Console
 
@@ -468,10 +481,10 @@ Access `http://127.0.0.1:7860/` and log in with `ADMIN_KEY`.
 Main pages:
 
 - Account Management: Add, register, activate, verify, and delete Qwen accounts.
-- API Key Management: Create and delete keys for client calls.
+- API Key Management: Create and delete keys for client calls, and show environment-injected keys.
 - Chat Test: Select a model, switch thinking/fast mode, test streaming and non-streaming requests.
 - Image Generation: Test the image generation interface and size ratios.
-- System Settings: View runtime status and basic configuration.
+- System Settings: View runtime status, basic configuration, and keepalive settings.
 
 Data persistence relies on the `data/` directory. This must be retained for Docker deployments:
 
@@ -687,4 +700,3 @@ Disclaimer:
 - Users should independently evaluate the laws and regulations of their region, upstream service terms, account compliance, and data security requirements.
 - Risks arising from the use of this project, including account bans, request restrictions, data loss, service interruptions, or other risks, are borne by the user.
 - If rights holders believe that the content of this project infringes their legitimate rights and interests, please raise the issue via the repository's Issue tracker, and the maintainers will handle it after verification.
-
