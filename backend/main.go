@@ -1183,7 +1183,7 @@ func (app *App) activateQwenAccount(ctx context.Context, acc Account) (Account, 
 			}
 			return nil
 		}
-		if app.client.VerifyToken(ctx, acc.Token) {
+		if app.client.VerifyToken(ctx, qwenCreds(acc.Token, acc.Cookies)) {
 			acc.Valid = true
 			acc.ActivationPending = false
 			acc.StatusCode = "valid"
@@ -1257,6 +1257,37 @@ func (app *App) withBrowser(ctx context.Context, fn func(page pw.Page) error) er
 		return ctx.Err()
 	}
 	return fn(page)
+}
+
+func (app *App) refreshAccountSession(ctx context.Context, acc Account) (Account, error) {
+	if strings.TrimSpace(acc.Password) == "" {
+		return acc, errors.New("password required to refresh cookies")
+	}
+	browserAutomationMu.Lock()
+	defer browserAutomationMu.Unlock()
+	err := app.withBrowser(ctx, func(page pw.Page) error {
+		token := loginAndGetToken(ctx, page, acc.Email, acc.Password, 30*time.Second)
+		if token == "" {
+			return errors.New("browser login failed: token not found")
+		}
+		acc.Token = token
+		acc.Cookies = qwenCookieString(page)
+		if acc.Cookies == "" {
+			return errors.New("browser login succeeded but cookies were empty")
+		}
+		acc.Valid = true
+		acc.ActivationPending = false
+		acc.StatusCode = "valid"
+		acc.LastError = ""
+		return nil
+	})
+	if err != nil {
+		return acc, err
+	}
+	if app.logger != nil {
+		app.logger.Info("账号会话刷新成功", "account", acc.Email, "cookies_found", acc.Cookies != "")
+	}
+	return acc, nil
 }
 
 func loginAndGetToken(ctx context.Context, page pw.Page, email, password string, timeout time.Duration) string {
@@ -1454,6 +1485,7 @@ func urlQueryEscape(value string) string {
 type WarmChat struct {
 	Email     string
 	Token     string
+	Cookies   string
 	Model     string
 	ChatType  string
 	ChatID    string
@@ -1667,13 +1699,13 @@ func (p *ChatIDPool) Fill(ctx context.Context) {
 func (p *ChatIDPool) createWarmChat(ctx context.Context, acc Account, warmKey ModelWarmKey) {
 	fillCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	chatID, err := p.client.CreateChat(fillCtx, acc.Token, warmKey.Model, warmKey.ChatType)
+	chatID, err := p.client.CreateChat(fillCtx, qwenCreds(acc.Token, acc.Cookies), warmKey.Model, warmKey.ChatType)
 	if err != nil {
 		logWarn(p.logger, ctx, "预热会话创建失败", "account", acc.Email, "model", warmKey.Model, "chat_type", warmKey.ChatType, "error", err)
 		return
 	}
 	item := WarmChat{
-		Email: acc.Email, Token: acc.Token, Model: warmKey.Model, ChatType: normalizeUpstreamChatType(warmKey.ChatType),
+		Email: acc.Email, Token: acc.Token, Cookies: acc.Cookies, Model: warmKey.Model, ChatType: normalizeUpstreamChatType(warmKey.ChatType),
 		ChatID: chatID, CreatedAt: time.Now(),
 	}
 	key := warmChatKey(item.Email, item.Model, item.ChatType)
@@ -1716,7 +1748,7 @@ func (p *ChatIDPool) cleanup(ctx context.Context, deleteAll bool) {
 	}
 	p.mu.Unlock()
 	for _, item := range expired {
-		p.client.DeleteChat(context.Background(), item.Token, item.ChatID)
+		p.client.DeleteChat(context.Background(), qwenCreds(item.Token, item.Cookies), item.ChatID)
 	}
 	if len(expired) > 0 {
 		logInfo(p.logger, ctx, "清理预热会话", "count", len(expired), "delete_all", deleteAll)
@@ -2593,14 +2625,14 @@ func (app *App) runCompletionWithHooks(ctx context.Context, req StandardRequest,
 	app.chatPool.RememberModel(req.ResolvedModel, req.ChatType)
 	chatID, reused := app.chatPool.Take(ctx, acc.Email, req.ResolvedModel, req.ChatType)
 	if !reused {
-		chatID, err = app.client.CreateChat(ctx, acc.Token, req.ResolvedModel, req.ChatType)
+		chatID, err = app.client.CreateChat(ctx, qwenCreds(acc.Token, acc.Cookies), req.ResolvedModel, req.ChatType)
 		if err != nil {
 			app.classifyAccountError(acc, err)
 			app.logWarn(ctx, "创建上游会话失败", "account", acc.Email, "error", err)
 			return CompletionResult{}, err
 		}
 	}
-	defer asyncDeleteChat(app.client, acc.Token, chatID)
+	defer asyncDeleteChat(app.client, acc.Token, acc.Cookies, chatID)
 	setRequestLogFields(ctx, "chat_id", chatID)
 	app.logInfo(ctx, "创建上游会话", "chat_type", req.ChatType, "prewarmed", reused)
 
@@ -2629,7 +2661,7 @@ func (app *App) runCompletionWithHooks(ctx context.Context, req StandardRequest,
 		}
 		return nil
 	}
-	err = app.client.StreamChat(ctx, acc.Token, chatID, payload, func(evt UpstreamEvent) error {
+	err = app.client.StreamChat(ctx, qwenCreds(acc.Token, acc.Cookies), chatID, payload, func(evt UpstreamEvent) error {
 		result.Events = append(result.Events, evt)
 		if evt.Type != "delta" || evt.Content == "" {
 			return nil
@@ -3748,13 +3780,13 @@ func firstRepeatedToolName(calls []ParsedToolCall) string {
 	return ""
 }
 
-func asyncDeleteChat(client *QwenClient, token, chatID string) {
+func asyncDeleteChat(client *QwenClient, token, cookies, chatID string) {
 	if client == nil || strings.TrimSpace(token) == "" || strings.TrimSpace(chatID) == "" {
 		return
 	}
-	tokenCopy := token
+	credsCopy := qwenCreds(token, cookies)
 	chatIDCopy := chatID
-	go client.DeleteChat(context.Background(), tokenCopy, chatIDCopy)
+	go client.DeleteChat(context.Background(), credsCopy, chatIDCopy)
 }
 
 func (app *App) recoverBlockedToolNameOutput(ctx context.Context, acc *Account, req StandardRequest, result CompletionResult) CompletionResult {
@@ -4038,12 +4070,12 @@ func isAcceptableNoToolContinuationText(req StandardRequest, result CompletionRe
 }
 
 func (app *App) runToolMarkupRecoveryAttempt(ctx context.Context, acc *Account, req StandardRequest, prompt, reason string) (CompletionResult, error) {
-	chatID, err := app.client.CreateChat(ctx, acc.Token, req.ResolvedModel, req.ChatType)
+	chatID, err := app.client.CreateChat(ctx, qwenCreds(acc.Token, acc.Cookies), req.ResolvedModel, req.ChatType)
 	if err != nil {
 		app.classifyAccountError(acc, err)
 		return CompletionResult{}, err
 	}
-	defer asyncDeleteChat(app.client, acc.Token, chatID)
+	defer asyncDeleteChat(app.client, acc.Token, acc.Cookies, chatID)
 	app.logInfo(ctx, "[Retry] recovery chat created", "reason", reason, "recovery_chat_id", chatID)
 	payload := buildChatPayload(chatID, req.ResolvedModel, prompt, req.ToolEnabled, req.UpstreamFiles, req.ChatType, nil, req.ThinkingEnabled, req.EnableSearch)
 	result := CompletionResult{FinishReason: "stop"}
@@ -4052,7 +4084,7 @@ func (app *App) runToolMarkupRecoveryAttempt(ctx context.Context, acc *Account, 
 	if req.ToolEnabled {
 		sieve = toolcall.NewToolSieve(req.Tools)
 	}
-	err = app.client.StreamChat(ctx, acc.Token, chatID, payload, func(evt UpstreamEvent) error {
+	err = app.client.StreamChat(ctx, qwenCreds(acc.Token, acc.Cookies), chatID, payload, func(evt UpstreamEvent) error {
 		result.Events = append(result.Events, evt)
 		if evt.Type != "delta" || evt.Content == "" {
 			return nil
@@ -5641,19 +5673,19 @@ func (app *App) createImageURLs(ctx context.Context, model, promptText string, i
 			setRequestLogFields(ctx, "account", acc.Email)
 			app.logInfo(ctx, "图片生成开始尝试", "attempt", attempt+1, "model", model)
 
-			chatID, err := app.client.CreateChat(ctx, acc.Token, model, "image_gen")
+			chatID, err := app.client.CreateChat(ctx, qwenCreds(acc.Token, acc.Cookies), model, "image_gen")
 			if err != nil {
 				app.classifyAccountErrorFor(acc, err, accountUsageImage)
 				lastErr = err
 				app.logWarn(ctx, "图片生成创建会话失败", "attempt", attempt+1, "error", err)
 				return
 			}
-			defer asyncDeleteChat(app.client, acc.Token, chatID)
+			defer asyncDeleteChat(app.client, acc.Token, acc.Cookies, chatID)
 			setRequestLogFields(ctx, "chat_id", chatID)
 
 			payload := buildChatPayload(chatID, model, promptText, false, nil, "image_gen", imageOptions, nil, false)
 			parts := []string{}
-			if err := app.client.StreamChat(ctx, acc.Token, chatID, payload, func(evt UpstreamEvent) error {
+			if err := app.client.StreamChat(ctx, qwenCreds(acc.Token, acc.Cookies), chatID, payload, func(evt UpstreamEvent) error {
 				if evt.Content != "" {
 					parts = append(parts, evt.Content)
 				}
@@ -5669,10 +5701,10 @@ func (app *App) createImageURLs(ctx context.Context, model, promptText string, i
 			}
 
 			answerText := strings.Join(parts, "\n")
-			if _, detail, err := app.client.GetChatDetail(ctx, acc.Token, chatID, 30*time.Second); err == nil && detail != "" {
+			if _, detail, err := app.client.GetChatDetail(ctx, qwenCreds(acc.Token, acc.Cookies), chatID, 30*time.Second); err == nil && detail != "" {
 				answerText += "\n" + detail
 			}
-			if chats, err := app.client.ListChats(ctx, acc.Token, 20); err == nil {
+			if chats, err := app.client.ListChats(ctx, qwenCreds(acc.Token, acc.Cookies), 20); err == nil {
 				for _, chat := range chats {
 					if stringValue(chat, "id", "") == chatID {
 						answerText += "\n" + mustJSON(chat)
@@ -5774,19 +5806,19 @@ func (app *App) createVideoURLs(ctx context.Context, model, promptText string, v
 			defer app.accounts.Release(acc)
 			setRequestLogFields(ctx, "account", acc.Email)
 			app.logInfo(ctx, "视频生成开始尝试", "attempt", attempt+1, "model", model)
-			chatID, err = app.client.CreateChat(ctx, acc.Token, model, "t2v")
+			chatID, err = app.client.CreateChat(ctx, qwenCreds(acc.Token, acc.Cookies), model, "t2v")
 			if err != nil {
 				app.classifyAccountErrorFor(acc, err, accountUsageVideo)
 				lastErr = err
 				app.logWarn(ctx, "视频生成创建会话失败", "attempt", attempt+1, "error", err)
 				return
 			}
-			defer asyncDeleteChat(app.client, acc.Token, chatID)
+			defer asyncDeleteChat(app.client, acc.Token, acc.Cookies, chatID)
 			setRequestLogFields(ctx, "chat_id", chatID)
 
 			payload := buildChatPayload(chatID, model, promptText, false, nil, "t2v", videoOptions, nil, false)
 			payload["stream"] = false
-			status, body, err := app.client.PostChatCompletionOnce(ctx, acc.Token, chatID, payload, 90*time.Second)
+			status, body, err := app.client.PostChatCompletionOnce(ctx, qwenCreds(acc.Token, acc.Cookies), chatID, payload, 90*time.Second)
 			if err != nil {
 				app.classifyAccountErrorFor(acc, err, accountUsageVideo)
 				lastErr = err
@@ -5811,7 +5843,7 @@ func (app *App) createVideoURLs(ctx context.Context, model, promptText string, v
 			app.logInfo(ctx, "视频生成初始结果解析", "attempt", attempt+1, "url_count", len(urls), "task_count", len(taskIDs))
 			if len(urls) == 0 && len(taskIDs) > 0 {
 				app.logInfo(ctx, "视频生成开始轮询任务", "task_id", taskIDs[0])
-				taskText, err := app.pollVideoTask(ctx, acc.Token, taskIDs[0], 7*time.Minute)
+				taskText, err := app.pollVideoTask(ctx, qwenCreds(acc.Token, acc.Cookies), taskIDs[0], 7*time.Minute)
 				if err != nil {
 					lastErr = err
 					app.classifyAccountErrorFor(acc, err, accountUsageVideo)
@@ -5822,7 +5854,7 @@ func (app *App) createVideoURLs(ctx context.Context, model, promptText string, v
 				urls = extractVideoURLs(answerText)
 			}
 			if len(urls) == 0 {
-				if _, detail, err := app.client.GetChatDetail(ctx, acc.Token, chatID, 30*time.Second); err == nil && detail != "" {
+				if _, detail, err := app.client.GetChatDetail(ctx, qwenCreds(acc.Token, acc.Cookies), chatID, 30*time.Second); err == nil && detail != "" {
 					answerText += "\n" + detail
 					urls = extractVideoURLs(answerText)
 				}
@@ -5876,12 +5908,12 @@ func upstreamMediaErrorStatus(err error) int {
 	return http.StatusInternalServerError
 }
 
-func (app *App) pollVideoTask(ctx context.Context, token, taskID string, timeout time.Duration) (string, error) {
+func (app *App) pollVideoTask(ctx context.Context, creds QwenCreds, taskID string, timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)
 	snapshots := []string{}
 	lastStatus := ""
 	for time.Now().Before(deadline) {
-		status, body, err := app.client.GetVisionTaskStatus(ctx, token, taskID, 30*time.Second)
+		status, body, err := app.client.GetVisionTaskStatus(ctx, creds, taskID, 30*time.Second)
 		if body != "" {
 			snapshots = append(snapshots, body)
 		}
@@ -6249,7 +6281,7 @@ func (app *App) adminAddAccount(w http.ResponseWriter, r *http.Request) {
 		Username:   stringValue(body, "username", ""),
 		StatusCode: "valid",
 	}
-	verify := app.client.VerifyTokenDetail(r.Context(), token)
+	verify := app.client.VerifyTokenDetail(r.Context(), qwenCreds(token, stringValue(body, "cookies", "")))
 	if !verify.Valid {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "Invalid token (验证失败，请确认Token有效)", "status_code": verify.StatusCode, "detail": verify.Error})
 		return
@@ -6267,7 +6299,7 @@ func (app *App) adminVerifyAll(w http.ResponseWriter, r *http.Request) {
 	}
 	results := []map[string]any{}
 	for _, acc := range app.accounts.Snapshot() {
-		verify := app.client.VerifyTokenDetail(r.Context(), acc.Token)
+		verify := app.client.VerifyTokenDetail(r.Context(), qwenCreds(acc.Token, acc.Cookies))
 		_ = app.accounts.MarkVerification(acc.Email, verify)
 		results = append(results, map[string]any{"email": acc.Email, "valid": verify.Valid, "status_code": verify.StatusCode, "error": verify.Error, "refreshed": false})
 	}
@@ -6304,11 +6336,32 @@ func (app *App) adminActivateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if target.Valid && target.Token != "" && !target.ActivationPending {
-		verify := app.client.VerifyTokenDetail(r.Context(), target.Token)
-		if verify.Valid {
+		verify := app.client.VerifyTokenDetail(r.Context(), qwenCreds(target.Token, target.Cookies))
+		if verify.Valid && strings.TrimSpace(target.Cookies) != "" {
 			_ = app.accounts.MarkVerification(target.Email, verify)
 			app.logInfo(r.Context(), "账号已激活，现有 token 验证通过", "account", email)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "账号已激活，现有 token 验证通过"})
+			return
+		}
+		if verify.Valid && strings.TrimSpace(target.Cookies) == "" && target.Password != "" {
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+			defer cancel()
+			refreshed, err := app.refreshAccountSession(ctx, *target)
+			if err == nil {
+				if err := app.accounts.Add(refreshed); err != nil {
+					app.logWarn(r.Context(), "账号 Cookie 刷新保存失败", "account", email, "error", err)
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				app.logInfo(r.Context(), "账号 Cookie 刷新成功", "account", email)
+				writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "账号 Cookie 刷新成功"})
+				return
+			}
+			app.logWarn(r.Context(), "账号 Cookie 刷新失败，继续激活流程", "account", email, "error", err)
+		} else if verify.Valid {
+			_ = app.accounts.MarkVerification(target.Email, verify)
+			app.logInfo(r.Context(), "账号已激活，现有 token 验证通过", "account", email)
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "账号已激活，现有 token 验证通过（Cookie 为空，建议补充密码后重新激活）"})
 			return
 		}
 		app.logWarn(r.Context(), "账号标记有效但现有 token 验证失败，继续激活流程", "account", email, "status_code", verify.StatusCode, "error", verify.Error)
@@ -6341,7 +6394,7 @@ func (app *App) adminVerifyAccount(w http.ResponseWriter, r *http.Request) {
 	email := r.PathValue("email")
 	for _, acc := range app.accounts.Snapshot() {
 		if acc.Email == email {
-			verify := app.client.VerifyTokenDetail(r.Context(), acc.Token)
+			verify := app.client.VerifyTokenDetail(r.Context(), qwenCreds(acc.Token, acc.Cookies))
 			_ = app.accounts.MarkVerification(acc.Email, verify)
 			writeJSON(w, http.StatusOK, map[string]any{"email": email, "valid": verify.Valid, "status_code": verify.StatusCode, "error": verify.Error, "refreshed": false})
 			return
@@ -7674,6 +7727,24 @@ type TokenVerifyResult struct {
 	Error      string
 }
 
+type QwenCreds struct {
+	Token   string
+	Cookies string
+}
+
+func qwenCreds(token, cookies string) QwenCreds {
+	return QwenCreds{Token: strings.TrimSpace(token), Cookies: strings.TrimSpace(cookies)}
+}
+
+func isWAFResponse(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "aliyun_waf") || strings.Contains(lower, "<!doctype") || strings.Contains(lower, "<html")
+}
+
+func wafBlockedError(action string) error {
+	return fmt.Errorf("waf_blocked: %s 被阿里云 WAF 拦截，请通过账号激活刷新 Cookie 后重试", action)
+}
+
 func NewQwenClient(pool *AccountPool, settings Settings, logger *slog.Logger) *QwenClient {
 	return &QwenClient{
 		pool: pool, settings: settings, logger: logger,
@@ -7690,9 +7761,11 @@ func NewQwenClient(pool *AccountPool, settings Settings, logger *slog.Logger) *Q
 	}
 }
 
-func qwenHeaders(token string) http.Header {
+func qwenHeaders(creds QwenCreds) http.Header {
 	h := http.Header{}
-	h.Set("Authorization", "Bearer "+token)
+	if creds.Token != "" {
+		h.Set("Authorization", "Bearer "+creds.Token)
+	}
 	h.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 	h.Set("Accept", "application/json, text/plain, */*")
 	h.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
@@ -7705,10 +7778,13 @@ func qwenHeaders(token string) http.Header {
 	h.Set("sec-fetch-dest", "empty")
 	h.Set("sec-fetch-mode", "cors")
 	h.Set("sec-fetch-site", "same-origin")
+	if creds.Cookies != "" {
+		h.Set("Cookie", creds.Cookies)
+	}
 	return h
 }
 
-func (c *QwenClient) requestJSON(ctx context.Context, method, path, token string, body any, timeout time.Duration) (int, string, error) {
+func (c *QwenClient) requestJSON(ctx context.Context, method, path string, creds QwenCreds, body any, timeout time.Duration) (int, string, error) {
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
@@ -7726,20 +7802,20 @@ func (c *QwenClient) requestJSON(ctx context.Context, method, path, token string
 	if err != nil {
 		return 0, "", err
 	}
-	req.Header = qwenHeaders(token)
+	req.Header = qwenHeaders(creds)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	start := time.Now()
-	logInfo(c.logger, ctx, "开始上游请求", "method", method, "path", path, "token", redactToken(token))
+	logInfo(c.logger, ctx, "开始上游请求", "method", method, "path", path, "token", redactToken(creds.Token), "has_cookies", creds.Cookies != "")
 	resp, err := c.http.Do(req)
 	if err != nil {
-		logWarn(c.logger, ctx, "上游请求失败", "method", method, "path", path, "token", redactToken(token), "duration_ms", time.Since(start).Milliseconds(), "error", err)
+		logWarn(c.logger, ctx, "上游请求失败", "method", method, "path", path, "token", redactToken(creds.Token), "duration_ms", time.Since(start).Milliseconds(), "error", err)
 		return 0, err.Error(), err
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
-	attrs := []any{"method", method, "path", path, "token", redactToken(token), "status", resp.StatusCode, "bytes", len(raw), "duration_ms", time.Since(start).Milliseconds()}
+	attrs := []any{"method", method, "path", path, "token", redactToken(creds.Token), "status", resp.StatusCode, "bytes", len(raw), "duration_ms", time.Since(start).Milliseconds()}
 	if resp.StatusCode >= 400 {
 		attrs = append(attrs, "body", truncate(string(raw), 240))
 		logWarn(c.logger, ctx, "上游请求完成", attrs...)
@@ -7749,19 +7825,22 @@ func (c *QwenClient) requestJSON(ctx context.Context, method, path, token string
 	return resp.StatusCode, string(raw), nil
 }
 
-func (c *QwenClient) CreateChat(ctx context.Context, token, model, chatType string) (string, error) {
+func (c *QwenClient) CreateChat(ctx context.Context, creds QwenCreds, model, chatType string) (string, error) {
 	if chatType == "" {
 		chatType = "t2t"
 	}
 	ts := time.Now().Unix()
 	body := map[string]any{"title": fmt.Sprintf("api_%d", ts), "models": []string{model}, "chat_mode": "normal", "chat_type": normalizeUpstreamChatType(chatType), "timestamp": ts}
-	logInfo(c.logger, ctx, "开始创建上游会话", "model", model, "chat_type", chatType, "token", redactToken(token))
-	status, text, err := c.requestJSON(ctx, http.MethodPost, "/api/v2/chats/new", token, body, 30*time.Second)
+	logInfo(c.logger, ctx, "开始创建上游会话", "model", model, "chat_type", chatType, "token", redactToken(creds.Token), "has_cookies", creds.Cookies != "")
+	status, text, err := c.requestJSON(ctx, http.MethodPost, "/api/v2/chats/new", creds, body, 30*time.Second)
 	if err != nil {
 		logWarn(c.logger, ctx, "创建上游会话请求失败", "model", model, "chat_type", chatType, "error", err)
 		return "", err
 	}
 	if status != http.StatusOK {
+		if isWAFResponse(text) {
+			return "", wafBlockedError("create_chat")
+		}
 		lower := strings.ToLower(text)
 		if status == 401 || status == 403 || strings.Contains(lower, "unauthorized") || strings.Contains(lower, "forbidden") || strings.Contains(lower, "token") || strings.Contains(lower, "login") {
 			return "", fmt.Errorf("unauthorized: create_chat HTTP %d: %s", status, truncate(text, 200))
@@ -7773,6 +7852,9 @@ func (c *QwenClient) CreateChat(ctx context.Context, token, model, chatType stri
 	}
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(text), &payload); err != nil {
+		if isWAFResponse(text) {
+			return "", wafBlockedError("create_chat")
+		}
 		return "", fmt.Errorf("create_chat parse error: %w, body=%s", err, truncate(text, 200))
 	}
 	data, _ := payload["data"].(map[string]any)
@@ -7784,8 +7866,8 @@ func (c *QwenClient) CreateChat(ctx context.Context, token, model, chatType stri
 	return id, nil
 }
 
-func (c *QwenClient) DeleteChat(ctx context.Context, token, chatID string) bool {
-	if token == "" || chatID == "" {
+func (c *QwenClient) DeleteChat(ctx context.Context, creds QwenCreds, chatID string) bool {
+	if creds.Token == "" || chatID == "" {
 		return true
 	}
 	c.mu.Lock()
@@ -7795,7 +7877,7 @@ func (c *QwenClient) DeleteChat(ctx context.Context, token, chatID string) bool 
 	}
 	c.mu.Unlock()
 	for attempt := 1; attempt <= max(1, c.settings.ChatDeleteRetryAttempts); attempt++ {
-		status, text, err := c.requestJSON(ctx, http.MethodDelete, "/api/v2/chats/"+chatID, token, nil, 20*time.Second)
+		status, text, err := c.requestJSON(ctx, http.MethodDelete, "/api/v2/chats/"+chatID, creds, nil, 20*time.Second)
 		if err == nil && (status == 200 || status == 204 || status == 404) {
 			c.mu.Lock()
 			c.deleted[chatID] = true
@@ -7809,7 +7891,7 @@ func (c *QwenClient) DeleteChat(ctx context.Context, token, chatID string) bool 
 	return false
 }
 
-func (c *QwenClient) StreamChat(ctx context.Context, token, chatID string, payload map[string]any, onEvent func(UpstreamEvent) error) error {
+func (c *QwenClient) StreamChat(ctx context.Context, creds QwenCreds, chatID string, payload map[string]any, onEvent func(UpstreamEvent) error) error {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -7820,10 +7902,10 @@ func (c *QwenClient) StreamChat(ctx context.Context, token, chatID string, paylo
 	if err != nil {
 		return err
 	}
-	req.Header = qwenHeaders(token)
+	req.Header = qwenHeaders(creds)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
-	logInfo(c.logger, ctx, "开始上游流式请求", "chat_id", chatID, "token", redactToken(token), "payload_bytes", len(raw))
+	logInfo(c.logger, ctx, "开始上游流式请求", "chat_id", chatID, "token", redactToken(creds.Token), "has_cookies", creds.Cookies != "", "payload_bytes", len(raw))
 	start := time.Now()
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -7955,7 +8037,7 @@ func (c *QwenClient) StreamChat(ctx context.Context, token, chatID string, paylo
 	}
 }
 
-func (c *QwenClient) PostChatCompletionOnce(ctx context.Context, token, chatID string, payload map[string]any, timeout time.Duration) (int, string, error) {
+func (c *QwenClient) PostChatCompletionOnce(ctx context.Context, creds QwenCreds, chatID string, payload map[string]any, timeout time.Duration) (int, string, error) {
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
@@ -7969,10 +8051,10 @@ func (c *QwenClient) PostChatCompletionOnce(ctx context.Context, token, chatID s
 	if err != nil {
 		return 0, "", err
 	}
-	req.Header = qwenHeaders(token)
+	req.Header = qwenHeaders(creds)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Accel-Buffering", "no")
-	logInfo(c.logger, ctx, "开始上游非流式请求", "chat_id", chatID, "token", redactToken(token), "payload_bytes", len(raw))
+	logInfo(c.logger, ctx, "开始上游非流式请求", "chat_id", chatID, "token", redactToken(creds.Token), "has_cookies", creds.Cookies != "", "payload_bytes", len(raw))
 	start := time.Now()
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -7991,22 +8073,22 @@ func (c *QwenClient) PostChatCompletionOnce(ctx context.Context, token, chatID s
 	return resp.StatusCode, string(body), nil
 }
 
-func (c *QwenClient) GetVisionTaskStatus(ctx context.Context, token, taskID string, timeout time.Duration) (int, string, error) {
+func (c *QwenClient) GetVisionTaskStatus(ctx context.Context, creds QwenCreds, taskID string, timeout time.Duration) (int, string, error) {
 	logInfo(c.logger, ctx, "查询上游视觉任务", "task_id", taskID)
-	return c.requestJSON(ctx, http.MethodGet, "/api/v1/tasks/status/"+taskID, token, nil, timeout)
+	return c.requestJSON(ctx, http.MethodGet, "/api/v1/tasks/status/"+taskID, creds, nil, timeout)
 }
 
-func (c *QwenClient) GetChatDetail(ctx context.Context, token, chatID string, timeout time.Duration) (int, string, error) {
+func (c *QwenClient) GetChatDetail(ctx context.Context, creds QwenCreds, chatID string, timeout time.Duration) (int, string, error) {
 	logInfo(c.logger, ctx, "查询上游会话详情", "chat_id", chatID)
-	return c.requestJSON(ctx, http.MethodGet, "/api/v2/chats/"+chatID, token, nil, timeout)
+	return c.requestJSON(ctx, http.MethodGet, "/api/v2/chats/"+chatID, creds, nil, timeout)
 }
 
-func (c *QwenClient) ListChats(ctx context.Context, token string, limit int) ([]map[string]any, error) {
+func (c *QwenClient) ListChats(ctx context.Context, creds QwenCreds, limit int) ([]map[string]any, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 	logInfo(c.logger, ctx, "查询上游会话列表", "limit", limit)
-	status, text, err := c.requestJSON(ctx, http.MethodGet, fmt.Sprintf("/api/v2/chats?limit=%d", limit), token, nil, 20*time.Second)
+	status, text, err := c.requestJSON(ctx, http.MethodGet, fmt.Sprintf("/api/v2/chats?limit=%d", limit), creds, nil, 20*time.Second)
 	if err != nil {
 		logWarn(c.logger, ctx, "查询上游会话列表失败", "limit", limit, "error", err)
 		return nil, err
@@ -8038,7 +8120,7 @@ func (c *QwenClient) ListModelsFromPool(ctx context.Context) ([]map[string]any, 
 	defer c.pool.Release(acc)
 	setRequestLogFields(ctx, "account", acc.Email)
 	logInfo(c.logger, ctx, "拉取上游模型", "account", acc.Email)
-	status, text, err := c.requestJSON(ctx, http.MethodGet, "/api/models", acc.Token, nil, 20*time.Second)
+	status, text, err := c.requestJSON(ctx, http.MethodGet, "/api/models", qwenCreds(acc.Token, acc.Cookies), nil, 20*time.Second)
 	if err != nil || status != 200 {
 		if err != nil {
 			logWarn(c.logger, ctx, "拉取上游模型请求失败", "account", acc.Email, "error", err)
@@ -8058,28 +8140,30 @@ func (c *QwenClient) ListModelsFromPool(ctx context.Context) ([]map[string]any, 
 	return models, nil
 }
 
-func (c *QwenClient) VerifyToken(ctx context.Context, token string) bool {
-	return c.VerifyTokenDetail(ctx, token).Valid
+func (c *QwenClient) VerifyToken(ctx context.Context, creds QwenCreds) bool {
+	return c.VerifyTokenDetail(ctx, creds).Valid
 }
 
-func (c *QwenClient) VerifyTokenDetail(ctx context.Context, token string) TokenVerifyResult {
-	if strings.TrimSpace(token) == "" {
+func (c *QwenClient) VerifyTokenDetail(ctx context.Context, creds QwenCreds) TokenVerifyResult {
+	if creds.Token == "" {
 		logWarn(c.logger, ctx, "账号 Token 验证失败", "status_code", "auth_error", "error", "empty token")
 		return TokenVerifyResult{StatusCode: "auth_error", Error: "empty token"}
 	}
-	logInfo(c.logger, ctx, "开始账号 Token 验证", "token", redactToken(token))
-	status, text, err := c.requestJSON(ctx, http.MethodGet, "/api/v2/user/info", token, nil, 20*time.Second)
+	logInfo(c.logger, ctx, "开始账号 Token 验证", "token", redactToken(creds.Token), "has_cookies", creds.Cookies != "")
+	status, text, err := c.requestJSON(ctx, http.MethodGet, "/api/v2/user/info", creds, nil, 20*time.Second)
 	if err != nil {
-		logWarn(c.logger, ctx, "账号 Token 验证请求失败", "token", redactToken(token), "error", err)
+		logWarn(c.logger, ctx, "账号 Token 验证请求失败", "token", redactToken(creds.Token), "error", err)
 		return TokenVerifyResult{StatusCode: "network_error", Error: err.Error()}
 	}
 	lower := strings.ToLower(text)
-	if status >= 200 && status < 300 && !strings.Contains(lower, "unauthorized") {
-		logInfo(c.logger, ctx, "账号 Token 验证通过", "token", redactToken(token), "status", status)
+	if status >= 200 && status < 300 && !strings.Contains(lower, "unauthorized") && !isWAFResponse(text) {
+		logInfo(c.logger, ctx, "账号 Token 验证通过", "token", redactToken(creds.Token), "status", status)
 		return TokenVerifyResult{Valid: true, StatusCode: "valid"}
 	}
 	statusCode := "invalid"
 	switch {
+	case isWAFResponse(text):
+		statusCode = "waf_blocked"
 	case status == 401 || status == 403 || strings.Contains(lower, "unauthorized") || strings.Contains(lower, "forbidden") || strings.Contains(lower, "login") || strings.Contains(lower, "token"):
 		statusCode = "auth_error"
 	case status == 429:
@@ -8088,7 +8172,7 @@ func (c *QwenClient) VerifyTokenDetail(ctx context.Context, token string) TokenV
 		statusCode = "banned"
 	}
 	result := TokenVerifyResult{StatusCode: statusCode, Error: fmt.Sprintf("HTTP %d: %s", status, truncate(text, 200))}
-	logWarn(c.logger, ctx, "账号 Token 验证失败", "token", redactToken(token), "status", status, "status_code", statusCode, "body", truncate(text, 240))
+	logWarn(c.logger, ctx, "账号 Token 验证失败", "token", redactToken(creds.Token), "status", status, "status_code", statusCode, "body", truncate(text, 240))
 	return result
 }
 

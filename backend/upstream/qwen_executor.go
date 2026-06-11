@@ -8,13 +8,14 @@ import (
 
 // ChatClient is the narrow upstream contract required to execute one Qwen turn.
 type ChatClient interface {
-	CreateChat(ctx context.Context, token, model, chatType string) (string, error)
-	DeleteChat(ctx context.Context, token, chatID string) bool
-	StreamChat(ctx context.Context, token, chatID string, payload map[string]any, onEvent func(Event) error) error
+	CreateChat(ctx context.Context, token, cookies, model, chatType string) (string, error)
+	DeleteChat(ctx context.Context, token, cookies, chatID string) bool
+	StreamChat(ctx context.Context, token, cookies, chatID string, payload map[string]any, onEvent func(Event) error) error
 }
 
 type ExecuteOptions struct {
 	Token           string
+	Cookies         string
 	Model           string
 	Prompt          string
 	ChatType        string
@@ -30,15 +31,15 @@ type ExecuteOptions struct {
 // temporary upstream conversation.
 func ExecuteTurn(ctx context.Context, client ChatClient, opts ExecuteOptions, onEvent func(Event) error) (string, error) {
 	chatType := NormalizeChatType(opts.ChatType)
-	chatID, err := client.CreateChat(ctx, opts.Token, opts.Model, chatType)
+	chatID, err := client.CreateChat(ctx, opts.Token, opts.Cookies, opts.Model, chatType)
 	if err != nil {
 		return "", err
 	}
 	if opts.DeleteWhenDone {
-		defer client.DeleteChat(context.Background(), opts.Token, chatID)
+		defer client.DeleteChat(context.Background(), opts.Token, opts.Cookies, chatID)
 	}
 	payload := BuildChatPayload(chatID, opts.Model, opts.Prompt, opts.HasCustomTools, opts.Files, chatType, opts.MediaOptions, opts.ThinkingEnabled, opts.EnableSearch)
-	if err := client.StreamChat(ctx, opts.Token, chatID, payload, onEvent); err != nil {
+	if err := client.StreamChat(ctx, opts.Token, opts.Cookies, chatID, payload, onEvent); err != nil {
 		return chatID, err
 	}
 	return chatID, nil

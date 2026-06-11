@@ -941,7 +941,7 @@ func (app *App) uploadLocalFileToUpstream(ctx context.Context, acc *Account, loc
 		return nil, err
 	}
 	contentType := firstNonEmpty(local.ContentType, mime.TypeByExtension(filepath.Ext(local.Filename)), "application/octet-stream")
-	status, text, err := app.client.requestJSON(ctx, http.MethodPost, "/api/v2/files/getstsToken", acc.Token, map[string]any{
+	status, text, err := app.client.requestJSON(ctx, http.MethodPost, "/api/v2/files/getstsToken", qwenCreds(acc.Token, acc.Cookies), map[string]any{
 		"filename": local.Filename,
 		"filesize": len(raw),
 		"filetype": "file",
@@ -989,7 +989,7 @@ func (app *App) uploadLocalFileToUpstream(ctx context.Context, acc *Account, loc
 		return nil, err
 	}
 
-	status, text, err = app.client.requestJSON(ctx, http.MethodPost, "/api/v2/files/parse", acc.Token, map[string]any{"file_id": fileID}, 20*time.Second)
+	status, text, err = app.client.requestJSON(ctx, http.MethodPost, "/api/v2/files/parse", qwenCreds(acc.Token, acc.Cookies), map[string]any{"file_id": fileID}, 20*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -1000,7 +1000,7 @@ func (app *App) uploadLocalFileToUpstream(ctx context.Context, acc *Account, loc
 	deadline := time.Now().Add(time.Duration(maxInt(app.settings.ContextUploadParseTimeoutSeconds, 1)) * time.Second)
 	parseStatus := "pending"
 	for time.Now().Before(deadline) {
-		status, text, err = app.client.requestJSON(ctx, http.MethodPost, "/api/v2/files/parse/status", acc.Token, map[string]any{"file_id_list": []string{fileID}}, 20*time.Second)
+		status, text, err = app.client.requestJSON(ctx, http.MethodPost, "/api/v2/files/parse/status", qwenCreds(acc.Token, acc.Cookies), map[string]any{"file_id_list": []string{fileID}}, 20*time.Second)
 		if err != nil {
 			return nil, err
 		}
