@@ -22,7 +22,7 @@ from backend.services.file_store import LocalFileStore
 from backend.services.context_offload import ContextOffloader
 from backend.services.upstream_file_uploader import UpstreamFileUploader
 import backend.api.models as models
-from backend.api import admin, v1_chat, probes, anthropic, gemini, embeddings, images, files_api
+from backend.api import admin, v1_chat, probes, anthropic, gemini, embeddings, images, videos, files_api
 from backend.services.garbage_collector import garbage_collect_chats
 from backend.services.context_cleanup import context_cleanup_loop
 
@@ -62,8 +62,10 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(context_cleanup_loop(app))
 
         # 启动 chat_id 预热池（省上游 /chats/new 握手 500ms~6s）
+        # 注：原默认 target_per_account=5 在 21 账号下，每 30s 触发 ~100 次
+        # /chats/new 请求，会被 Qwen 风控降级为空 SSE。这里降到 1 个 + 长 TTL。
         from backend.services.chat_id_pool import ChatIdPool
-        app.state.chat_id_pool = ChatIdPool(app.state.qwen_client, target_per_account=5, ttl_seconds=600, default_model="qwen3.6-plus")
+        app.state.chat_id_pool = ChatIdPool(app.state.qwen_client, target_per_account=1, ttl_seconds=1800, default_model="qwen3.6-plus")
         app.state.qwen_executor.chat_id_pool = app.state.chat_id_pool  # 让 executor 直接访问
         await app.state.chat_id_pool.start()
 
@@ -78,6 +80,22 @@ async def lifespan(app: FastAPI):
         # 关闭 HTTP 连接池
         await app.state.qwen_client._http_client.aclose()
         log.info("HTTP 连接池已关闭")
+        # 持久化 Playwright cookie 并关闭浏览器
+        try:
+            await app.state.qwen_client._save_cookies()
+            log.info("Playwright cookie 已持久化")
+        except Exception as e:
+            log.warning(f"保存 Playwright cookie 失败: {e}")
+        try:
+            if app.state.qwen_client._pw_context:
+                await app.state.qwen_client._pw_context.close()
+            if app.state.qwen_client._pw_browser:
+                await app.state.qwen_client._pw_browser.close()
+            if app.state.qwen_client._pw_playwright:
+                await app.state.qwen_client._pw_playwright.stop()
+            log.info("Playwright 浏览器已关闭")
+        except Exception as e:
+            log.warning(f"关闭 Playwright 浏览器失败: {e}")
 
 app = FastAPI(title="qwen2API Enterprise Gateway", version="2.0.0", lifespan=lifespan)
 
@@ -96,6 +114,7 @@ app.include_router(anthropic.router, tags=["Claude Compatible"])
 app.include_router(gemini.router, tags=["Gemini Compatible"])
 app.include_router(embeddings.router, tags=["Embeddings"])
 app.include_router(images.router, tags=["Images"])
+app.include_router(videos.router, tags=["Videos"])
 app.include_router(files_api.router, tags=["Files"])
 app.include_router(probes.router, tags=["Probes"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Dashboard Admin"])

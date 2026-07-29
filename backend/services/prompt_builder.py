@@ -433,7 +433,7 @@ def build_prompt_with_tools(system_prompt: str, messages: list, tools: list, *, 
             messages = system_messages + recent_messages
             log.info(f"[Prompt] 截断历史：保留 system + 最近 {MAX_HISTORY_TURNS} 轮 (共 {len(messages)} 条)")
 
-    MAX_CHARS = 40000 if tools else 120000
+    MAX_CHARS = 100000 if tools else 200000
     sys_part = "" if tools and client_profile == CLAUDE_CODE_OPENAI_PROFILE else (f"<system>\n{system_prompt[:2000]}\n</system>" if system_prompt else "")
     tools_part = _build_tool_instruction_block(tools, client_profile) if tools else ""
 
@@ -444,7 +444,7 @@ def build_prompt_with_tools(system_prompt: str, messages: list, tools: list, *, 
     NEEDSREVIEW_MARKERS = ("需求回显", "已了解规则", "等待用户输入", "待执行任务", "待确认事项",
                            "[需求回显]", "**需求回显**")
     msg_count = 0
-    max_history_msgs = (30 if client_profile == CLAUDE_CODE_OPENAI_PROFILE else 8) if tools else 200
+    max_history_msgs = (30 if client_profile == CLAUDE_CODE_OPENAI_PROFILE else 30) if tools else 200
     for msg in reversed(messages):
         if msg_count >= max_history_msgs:
             break

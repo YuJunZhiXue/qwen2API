@@ -21,9 +21,8 @@ class QwenExecutor:
         self.chat_id_pool = None
 
     async def create_chat(self, token: str, model: str, chat_type: str = "t2t") -> str:
-        # 预热池快路径：如果能从池里拿到一个已预建的 chat_id 直接用
-        # 需要 token 反查 email（通过 account_pool）
-        if self.chat_id_pool is not None and self.account_pool is not None:
+        # 预热池只用于普通文本会话；t2v/t2i 等必须新建对应 chat_type
+        if chat_type == "t2t" and self.chat_id_pool is not None and self.account_pool is not None:
             try:
                 acc = next((a for a in self.account_pool.accounts if a.token == token), None)
                 if acc is not None:
@@ -68,6 +67,10 @@ class QwenExecutor:
                 raise Exception("429 Too Many Requests")
             raise Exception(f"create_chat HTTP {r['status']}: {body_text[:100]}")
 
+        # 检测 WAF 拦截（非账号问题）
+        if "aliyun_waf" in body_text.lower() or "captcha" in body_text.lower() or "<!doctype" in body_text[:50].lower():
+            raise Exception(f"waf_blocked: WAF 拦截 (create_chat): {body_text[:200]}")
+
         try:
             data = json.loads(body_text)
             if not data.get("success") or "id" not in data.get("data", {}):
@@ -78,7 +81,6 @@ class QwenExecutor:
             if any(
                 kw in body_lower
                 for kw in (
-                    "html",
                     "login",
                     "unauthorized",
                     "activation",
@@ -88,7 +90,7 @@ class QwenExecutor:
                     "expired",
                     "invalid",
                 )
-            ):
+            ) and "waf" not in body_lower and "html" not in body_lower:
                 raise Exception(f"unauthorized: account issue: {body_text[:200]}")
             raise Exception(f"create_chat parse error: {e}, body={body_text[:200]}")
 
@@ -135,10 +137,15 @@ class QwenExecutor:
                     raise Exception(f"HTTP {chunk_result['status']}: {str(body)[:100]}")
 
                 if "chunk" in chunk_result:
-                    buffer += chunk_result["chunk"]
-                    total_output_chars += len(chunk_result["chunk"])
+                    raw_chunk = chunk_result["chunk"]
+                    buffer += raw_chunk
+                    total_output_chars += len(raw_chunk)
+                    # DEBUG: 记录上游原始 SSE 数据前 500 字节
+                    if total_output_chars < 5000:
+                        log.info("[上游-DEBUG] 原始 SSE 数据块: %s", raw_chunk[:500])
                     while "\n\n" in buffer:
                         msg, buffer = buffer.split("\n\n", 1)
+                        log.info("[上游-DEBUG] 解析 SSE 消息: %s", msg[:500])
                         for evt in parse_sse_chunk(msg):
                             if not first_event_logged:
                                 first_event_logged = True
@@ -231,8 +238,15 @@ class QwenExecutor:
                     or "readtimeout" in err_msg
                     or type(e).__name__ in ("ReadTimeout", "TimeoutError", "TimeoutException")
                 )
+                is_waf = "waf_blocked" in err_msg or "waf challenge" in err_msg or "aliyun_waf" in err_msg
 
-                if is_timeout:
+                if is_waf:
+                    # WAF 拦截不是账号问题，是服务端风控，所有账号都会面临同样的 WAF
+                    # 因此不重试，直接抛出，让调用方得到清晰错误
+                    log.warning(f"[上游] WAF 拦截 账号={acc.email} 错误={e}")
+                    self.account_pool.release(acc)
+                    raise Exception(f"WAF blocked: Qwen WAF 拦截了本次请求。请设置 BROWSER_HEADED=1 环境变量后重启，在打开的浏览器窗口中手动完成验证码。详情: {e}")
+                elif is_timeout:
                     log.warning(f"[上游] 超时 第{attempt + 1}/{settings.MAX_RETRIES}次 账号={acc.email} 错误={e}")
                     exclude.add(acc.email)
                 elif "429" in err_msg or "rate limit" in err_msg or "too many" in err_msg:

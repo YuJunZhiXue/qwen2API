@@ -77,7 +77,7 @@ settings = Settings()
 
 # 全局映射
 MODEL_MAP = {
-    # OpenAI
+    # OpenAI (legacy)
     "gpt-4o":            "qwen3.6-plus",
     "gpt-4o-mini":       "qwen3.5-flash",
     "gpt-4-turbo":       "qwen3.6-plus",
@@ -85,29 +85,53 @@ MODEL_MAP = {
     "gpt-4.1":           "qwen3.6-plus",
     "gpt-4.1-mini":      "qwen3.5-flash",
     "gpt-3.5-turbo":     "qwen3.5-flash",
-    "gpt-5":             "qwen3.6-plus",
+    "gpt-5":             "qwen3.7-max",
     "o1":                "qwen3.6-plus",
     "o1-mini":           "qwen3.5-flash",
-    "o3":                "qwen3.6-plus",
+    "o3":                "qwen3.7-max",
     "o3-mini":           "qwen3.5-flash",
-    # Anthropic
+    # OpenAI (2026 latest — point to Qwen3.7-Max for agent workloads)
+    "gpt-5.5":           "qwen3.7-max",
+    "gpt-5.5-mini":      "qwen3.6-plus",
+    "gpt-5-codex":       "qwen3.7-max",
+    "gpt-5.5-codex":     "qwen3.7-max",
+    "o4":                "qwen3.7-max",
+    "o4-mini":           "qwen3.6-plus",
+    # Anthropic (legacy)
     "claude-opus-4-6":   "qwen3.6-plus",
     "claude-sonnet-4-5": "qwen3.6-plus",
     "claude-3-opus":     "qwen3.6-plus",
     "claude-3.5-sonnet": "qwen3.6-plus",
     "claude-3-sonnet":   "qwen3.6-plus",
     "claude-3-haiku":    "qwen3.5-flash",
-    # Gemini
+    # Anthropic (2026 latest — Claude Code default models)
+    "claude-opus-4-7":   "qwen3.7-max",
+    "claude-sonnet-4-6": "qwen3.7-max",
+    "claude-haiku-4-5":  "qwen3.6-plus",
+    # Gemini (legacy)
     "gemini-2.5-pro":    "qwen3.6-plus",
     "gemini-2.5-flash":  "qwen3.5-flash",
+    # Gemini (2026 latest)
+    "gemini-3-pro":      "qwen3.7-max",
+    "gemini-3-flash":    "qwen3.6-plus",
     # Qwen aliases
-    "qwen":              "qwen3.6-plus",
-    "qwen-max":          "qwen3.6-plus",
+    "qwen":              "qwen3.7-max",
+    "qwen-max":          "qwen3.7-max",
     "qwen-plus":         "qwen3.6-plus",
     "qwen-turbo":        "qwen3.5-flash",
+    "qwen-max-preview":  "qwen3.7-max",
+    "qwen3.7-max-preview": "qwen3.7-max",
+    "qwen3.7-plus":      "qwen3.7-plus",
+    # Qwen 3.8 (upstream preview)
+    "qwen3.8-max-preview": "qwen3.8-max-preview",
+    "qwen3.8-max":       "qwen3.8-max-preview",
+    "qwen3.8":           "qwen3.8-max-preview",
+    "qwen-3.8":          "qwen3.8-max-preview",
     # DeepSeek
     "deepseek-chat":     "qwen3.6-plus",
-    "deepseek-reasoner": "qwen3.6-plus",
+    "deepseek-reasoner": "qwen3.7-max",
+    "deepseek-v4":       "qwen3.7-max",
+    "deepseek-v4-flash": "qwen3.6-plus",
 }
 
 def resolve_model(name: str) -> str:

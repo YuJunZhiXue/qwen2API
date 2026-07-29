@@ -12,9 +12,20 @@ __pycache__/
 
 # Data and Logs
 data/*.json
+backend/data/*.json
 logs/
 legacy/
 *legacy*.py
+
+# Credentials / anti-bot artifacts (never commit)
+bx_pool.json
+.env.bxheaders
+browser_cookies.json
+*.bak
+*.bak-*
+*_challenge.html
+waf_*.js
+diag_*.html
 
 # Tests and scripts
 test_*.py

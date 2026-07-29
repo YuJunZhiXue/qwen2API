@@ -119,8 +119,9 @@ class ChatIdPool:
             log.warning(f"[ChatIdPool] prewarm failed email={getattr(account, 'email', '?')}: {err}")
 
     async def _refill_loop(self) -> None:
-        """定期轮询：每账号池低于 target 则补位。30 秒一轮。"""
-        interval = 30.0
+        """定期轮询：每账号池低于 target 则补位。
+        注：5 分钟一轮，太频繁的 /chats/new 会被 Qwen 风控降级为空 SSE。"""
+        interval = 300.0
         # 初始化立即跑一轮
         await asyncio.sleep(1.0)
         while not self._shutdown:
