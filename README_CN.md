@@ -277,7 +277,7 @@ docker compose logs -f qwen2api
 
 ### 1. Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=YuJunZhiXue/qwen2API&type=Timeline)](https://www.star-history.com/#YuJunZhiXue/qwen2API&Timeline)
+[![Star History Chart](https://star-history.dera.page/svg?repos=YuJunZhiXue/qwen2API&type=Timeline)](https://star-history.dera.page/#YuJunZhiXue/qwen2API&type=date)
 
 ### 2. 开源协议
 
