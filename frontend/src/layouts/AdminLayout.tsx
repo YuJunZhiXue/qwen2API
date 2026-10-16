@@ -10,7 +10,9 @@ import {
   Video,
   X,
 } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import LanguageSelector from "../components/LanguageSelector"
+import { reapplyLanguageOnRouteChange } from "../lib/translate"
 
 const navItems = [
   { name: "运行状态", path: "/", icon: LayoutDashboard },
@@ -26,6 +28,10 @@ export default function AdminLayout() {
   const loc = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   const activeItem = navItems.find(item => item.path === loc.pathname) || navItems[0]
+
+  useEffect(() => {
+    reapplyLanguageOnRouteChange()
+  }, [loc.pathname])
 
   return (
     <div className="relative flex h-screen w-full overflow-hidden text-foreground">
@@ -114,11 +120,14 @@ export default function AdminLayout() {
               <h1 className="truncate text-xl font-black tracking-tight md:text-2xl">{activeItem.name}</h1>
             </div>
           </div>
-          <div className="hidden items-center gap-2 lg:flex">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/75 bg-card/70 px-3 py-1 text-xs font-bold text-muted-foreground shadow-sm">
-              <span className="size-1.5 rounded-full bg-accent" />
-              qwen2API
-            </span>
+          <div className="flex items-center gap-3">
+            <LanguageSelector />
+            <div className="hidden items-center gap-2 lg:flex">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/75 bg-card/70 px-3 py-1 text-xs font-bold text-muted-foreground shadow-sm">
+                <span className="size-1.5 rounded-full bg-accent" />
+                qwen2API
+              </span>
+            </div>
           </div>
         </header>
 

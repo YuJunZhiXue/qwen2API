@@ -298,3 +298,29 @@
 .animate-fade-in-up {
   animation: fade-in-up 0.42s ease-out both;
 }
+
+/* Google Translate widget cleanup */
+.goog-te-banner-frame,
+.skiptranslate:not(.goog-te-gadget) {
+  display: none !important;
+}
+
+body {
+  top: 0px !important;
+}
+
+.goog-tooltip,
+.goog-tooltip:hover {
+  display: none !important;
+}
+
+.goog-text-highlight {
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+#goog-gt-tt {
+  display: none !important;
+}
+

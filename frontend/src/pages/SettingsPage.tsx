@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
-import { Settings2, RefreshCw, KeyRound, ServerCrash, Code, Activity, Save } from "lucide-react"
+import { Settings2, RefreshCw, KeyRound, ServerCrash, Code, Activity, Save, Globe } from "lucide-react"
 import { Button } from "../components/ui/button"
+import LanguageSelector from "../components/LanguageSelector"
 import { toast } from "sonner"
 import { adminRequestErrorMessage, clearStoredApiKey, getAuthHeader, getStoredApiKey, setStoredApiKey } from "../lib/auth"
 import { API_BASE } from "../lib/api"
@@ -82,8 +83,8 @@ export default function SettingsPage() {
 
   useEffect(() => {
     fetchSettings()
-    fetchModels()
-  }, [fetchSettings, fetchModels])
+    loadModels()
+  }, [fetchSettings, loadModels])
 
   const handleSaveSessionKey = () => {
     const key = setStoredApiKey(sessionKey)
@@ -244,6 +245,22 @@ export default function SettingsPage() {
       </section>
 
       <div className="grid gap-6 min-w-0">
+        {/* Language / 语言设置 */}
+        <div className="admin-card min-w-0 overflow-hidden">
+          <div className="admin-card-header flex flex-col space-y-1.5">
+            <div className="flex items-center gap-2">
+              <Globe className="h-5 w-5 text-primary" />
+              <h3 className="font-semibold leading-none tracking-tight">界面语言 / Language</h3>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              选择控制台显示语言，使用无需任何账号或 Key 的免费即时翻译工具将整个页面完整翻译为指定语言。 / Select display language. Uses a free translator without any accounts or keys to translate the entire page.
+            </p>
+          </div>
+          <div className="p-6">
+            <LanguageSelector variant="card" />
+          </div>
+        </div>
+
         {/* Session Key */}
         <div className="admin-card min-w-0 overflow-hidden">
           <div className="admin-card-header flex flex-col space-y-1.5">
